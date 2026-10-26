@@ -1,0 +1,16 @@
+# Centralised smoke run on synthetic data. No DP, so the release gate always refuses it.
+name: smoke
+track: app
+seed: 42
+data:
+  n_users: 100
+  transactions_per_user: 40
+training:
+  epochs: 5
+  batch_size: 64
+  learning_rate: 0.01
+dp:
+  enabled: false
+export:
+  max_size_bytes: 512000
+  quantize: true

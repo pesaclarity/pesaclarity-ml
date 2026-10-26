@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+build/
+dist/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Model artefacts: weights are never committed (see MODEL-WEIGHTS.md)
+artefacts/
+mlruns/
+mlartifacts/
+mlflow.db
+*.tflite
+*.keras
+*.h5
+*.ckpt*
+*.pb
+saved_model/
+checkpoints/
+
+# Data: synthetic files are generated on demand; real data never belongs here
+data/
+*.jsonl
+
+# Local config and editors
+.env
+.idea/
+.vscode/
+.DS_Store

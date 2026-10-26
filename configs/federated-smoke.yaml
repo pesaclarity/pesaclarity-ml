@@ -1,0 +1,21 @@
+# Fast federated simulation with no update noise: checks the client and round mechanics only.
+# Epsilon is infinite, so the release gate always refuses it.
+name: federated-smoke
+track: app
+seed: 42
+data:
+  n_users: 300
+  transactions_per_user: 40
+training:
+  validation_fraction: 0.2
+federated:
+  rounds: 30
+  clients_per_round: 40
+  local_epochs: 2
+  local_batch_size: 16
+  local_learning_rate: 1.0
+  update_clip_norm: 3.0
+  update_noise_multiplier: 0.0
+  secure_aggregation: true
+export:
+  max_size_bytes: 512000

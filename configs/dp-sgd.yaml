@@ -1,0 +1,19 @@
+# Centralised DP-SGD on synthetic data; prints and logs the example-level budget (epsilon, delta).
+name: dp-sgd
+track: app
+seed: 42
+data:
+  n_users: 200
+  transactions_per_user: 60
+training:
+  epochs: 5
+  batch_size: 128
+  # Clipped, noised gradients are small; DP-SGD needs a much larger step than Adam.
+  learning_rate: 0.5
+dp:
+  enabled: true
+  l2_norm_clip: 1.0
+  noise_multiplier: 1.1
+  target_delta: 1.0e-6
+export:
+  max_size_bytes: 512000
