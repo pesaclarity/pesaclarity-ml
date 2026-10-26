@@ -29,6 +29,11 @@ class TrackPolicy(BaseModel):
     min_cohort_size: int = Field(ge=1)
     max_attack_auc: float = Field(ge=0.5, le=1)
     max_attack_advantage: float = Field(ge=0, le=1)
+    max_attack_tpr_at_1pct_fpr: float | None = Field(default=None, ge=0, le=1)
+    max_attack_tpr_at_0_1pct_fpr: float | None = Field(default=None, ge=0, le=1)
+    min_audit_examples: int = Field(default=1000, ge=1)
+    provisional: bool = True
+    """Membership-inference limits await review (pesaclarity/pesaclarity-ml#3)."""
     requires_legal_review: bool
 
 
