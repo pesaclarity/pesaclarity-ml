@@ -1,0 +1,25 @@
+# Federated simulation, commercial track: only users who opted in separately take part, and the
+# cohort must reach the commercial minimum (1,000). Heavy; not run in CI.
+name: federated-commercial
+track: commercial
+seed: 42
+data:
+  n_users: 7000
+  transactions_per_user: 20
+  commercial_opt_in_rate: 0.2
+training:
+  validation_fraction: 0.2
+dp:
+  target_delta: 1.0e-7
+federated:
+  rounds: 20
+  clients_per_round: 100
+  local_epochs: 2
+  local_batch_size: 16
+  local_learning_rate: 1.0
+  update_clip_norm: 3.0
+  update_noise_multiplier: 1.5
+  secure_aggregation: true
+  min_cohort_size: 1000
+export:
+  max_size_bytes: 512000

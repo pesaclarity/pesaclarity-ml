@@ -1,0 +1,24 @@
+# Federated simulation with DP-FedAvg, app track: every synthetic user is opted in by default.
+# User-level budget about epsilon 5.6 at delta 1e-6. DP-FedAvg needs large cohorts per round
+# for the noise to average out; with 40 clients per round the model does not learn.
+name: federated-app
+track: app
+seed: 42
+data:
+  n_users: 2500
+  transactions_per_user: 30
+training:
+  validation_fraction: 0.2
+dp:
+  target_delta: 1.0e-6
+federated:
+  rounds: 30
+  clients_per_round: 200
+  local_epochs: 2
+  local_batch_size: 16
+  local_learning_rate: 1.0
+  update_clip_norm: 3.0
+  update_noise_multiplier: 1.0
+  secure_aggregation: true
+export:
+  max_size_bytes: 512000
