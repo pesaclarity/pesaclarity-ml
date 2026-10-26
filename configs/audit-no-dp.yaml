@@ -1,0 +1,24 @@
+# Membership-inference audit baseline: the dp-sgd.yaml data and model trained WITHOUT DP.
+# Expected to fail the audit; it shows what the attacks find when nothing protects the data.
+# Pair with audit-dp-sgd.yaml:
+#   uv run akili audit --config configs/audit-no-dp.yaml --config configs/audit-dp-sgd.yaml
+# Synthetic data with varied payees, so there is a long tail of rare merchants to memorise.
+name: audit-no-dp
+track: app
+seed: 42
+data:
+  n_users: 200
+  transactions_per_user: 60
+  payee_style: varied
+training:
+  epochs: 5
+  batch_size: 64
+  learning_rate: 0.01
+dp:
+  enabled: false
+export:
+  max_size_bytes: 512000
+audit:
+  enabled: true
+  shadow_models: 16
+  max_candidates: 2000

@@ -25,8 +25,11 @@ Copy this list into the release issue and fill it in.
 - [ ] Epsilon and delta are within the track limits.
 - [ ] Federated updates were combined with secure aggregation.
 - [ ] Every round met the minimum cohort size for the track (app 100, commercial 1,000).
-- [ ] Membership-inference audit run with a real attack (not the placeholder); attack AUC and
-      advantage are within the track limits.
+- [ ] Membership-inference audit (`akili audit`, see [PRIVACY-AUDIT.md](PRIVACY-AUDIT.md)) run
+      on the release model with at least the track's `min_audit_examples`; for every attack
+      (loss, LiRA online and offline) the AUC, advantage and TPR at 1% and 0.1% FPR are within
+      the track limits. `audit-report.json` attached. The audit limits are provisional until
+      [#3](https://github.com/pesaclarity/pesaclarity-ml/issues/3) is closed.
 
 ## Compliance (recorded in the evidence file)
 
@@ -49,14 +52,21 @@ Copy this list into the release issue and fill it in.
 
 ## Evidence file
 
-`akili gate` reads a JSON file shaped like `akili.privacy.gate.ReleaseEvidence`:
+`akili gate` reads a JSON file shaped like `akili.privacy.gate.ReleaseEvidence`. `audit` is one
+attack's result or a list of them; `akili gate --evidence <file> --audit audit-report.json`
+fills it from the audit report instead:
 
 ```json
 {
   "model_name": "categoriser-2026.11",
   "track": "app",
   "privacy": { "...": "contents of privacy-report.json" },
-  "audit": { "attack": "lira", "auc": 0.52, "advantage": 0.03, "n_members": 1000, "n_non_members": 1000 },
+  "audit": [
+    { "attack": "loss", "auc": 0.51, "advantage": 0.02, "tpr_at_1pct_fpr": 0.011,
+      "tpr_at_0_1pct_fpr": 0.001, "n_members": 2000, "n_non_members": 2000 },
+    { "attack": "lira-online", "auc": 0.52, "advantage": 0.03, "tpr_at_1pct_fpr": 0.012,
+      "tpr_at_0_1pct_fpr": 0.0015, "n_members": 2000, "n_non_members": 2000 }
+  ],
   "cohort_size": 2400,
   "secure_aggregation": true,
   "dpia_filed": true,

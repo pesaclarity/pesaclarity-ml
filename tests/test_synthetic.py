@@ -2,6 +2,7 @@ import re
 from pathlib import Path
 
 from akili.config import SyntheticDataConfig
+from akili.features import tokenise
 from akili.synthetic import FAKE_MARKERS, commercial_opt_ins, generate, read_jsonl, write_jsonl
 
 CFG = SyntheticDataConfig(n_users=10, transactions_per_user=30, seed=3)
@@ -47,3 +48,23 @@ def test_commercial_opt_ins_follow_rate() -> None:
     rate = len(commercial_opt_ins(cfg, users)) / len(users)
     assert 0.2 < rate < 0.3
     assert commercial_opt_ins(cfg, users) == commercial_opt_ins(cfg, reversed(users))
+
+
+def test_varied_payees_are_fake_and_long_tailed() -> None:
+    cfg = CFG.model_copy(update={"payee_style": "varied"})
+    txs = generate(cfg)
+    assert generate(cfg) == txs
+    for tx in txs:
+        assert tx.payee.split()[0] in FAKE_MARKERS, tx.payee
+        assert not REAL_LOOKING_PHONE.search(tx.payee), tx.payee
+    # Count what the model sees: numbers and phones are already masked by the tokeniser.
+    basic = {tuple(tokenise(tx.payee)) for tx in generate(CFG)}
+    varied = {tuple(tokenise(tx.payee)) for tx in txs}
+    assert len(varied) > 2 * len(basic)
+
+
+def test_basic_style_is_unchanged_by_default() -> None:
+    assert CFG.payee_style == "basic"
+    assert (
+        generate(CFG)[0].payee == generate(CFG.model_copy(update={"payee_style": "basic"}))[0].payee
+    )

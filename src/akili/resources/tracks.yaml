@@ -2,6 +2,10 @@
 # Every release on either track needs DP-SGD with a published budget, secure aggregation,
 # a minimum cohort and a passing membership-inference audit.
 # Numbers are starting points to tune before the first release; tightening them never needs a code change.
+# The membership-inference limits (max_attack_*, min_audit_examples) are PROVISIONAL pending the
+# threshold review in pesaclarity/pesaclarity-ml#3; `provisional: true` makes the gate and the
+# audit report say so. Set it to false only when #3 has signed the numbers off.
+# TPR limits: a random guess has TPR equal to the FPR (0.01 at 1%, 0.001 at 0.1%).
 app:
   description: Improves parsing, categorisation and insights for users.
   consent_key: improve_app
@@ -12,6 +16,10 @@ app:
   min_cohort_size: 100
   max_attack_auc: 0.60
   max_attack_advantage: 0.10
+  max_attack_tpr_at_1pct_fpr: 0.05
+  max_attack_tpr_at_0_1pct_fpr: 0.01
+  min_audit_examples: 1000
+  provisional: true
   requires_legal_review: false
 commercial:
   description: Trains models that may be licensed. Separate opt-in, withdraw any time.
@@ -23,4 +31,8 @@ commercial:
   min_cohort_size: 1000
   max_attack_auc: 0.55
   max_attack_advantage: 0.05
+  max_attack_tpr_at_1pct_fpr: 0.03
+  max_attack_tpr_at_0_1pct_fpr: 0.005
+  min_audit_examples: 2000
+  provisional: true
   requires_legal_review: true

@@ -3,6 +3,10 @@
 Every payee is invented and marked DEMO, SAMPLE, FAKE or TEST; till and paybill numbers start
 with 000 and phone numbers are masked 0700 000 0xx-style placeholders. Nothing here is, or is
 derived from, real data. Never replace it with real messages.
+
+With ``payee_style: varied`` the names are built from random syllables (``DEMO KALIMO GROCERS``,
+``TEST WANDERU ZIKOTA``), so each user gets their own long tail of merchants and people, as on a
+real statement. The words are generated, not taken from any list of real businesses or people.
 """
 
 from __future__ import annotations
@@ -231,9 +235,68 @@ PROFILES: dict[str, _Profile] = {
 FAKE_MARKERS: tuple[str, ...] = ("DEMO", "SAMPLE", "FAKE", "TEST")
 START_DATE = datetime(2026, 1, 1, tzinfo=NAIROBI)
 
+_SYLLABLES: tuple[str, ...] = (
+    "ka", "li", "mo", "te", "nza", "ra", "bu", "shi", "wa", "ndu", "zi", "ro", "pe", "lu",
+    "mbi", "yo", "ki", "ta", "nu", "sa", "go", "fu", "ve", "dhi", "ko", "me", "ri", "tho",
+)  # fmt: skip
+_BUSINESS_WORDS: dict[str, tuple[str, ...]] = {
+    "business_income": ("ENTERPRISES", "AGENCIES", "CONSULTANTS", "TRADERS"),
+    "groceries": ("GROCERS", "MINIMART", "FRESH PRODUCE", "SUPERSTORE", "DUKA"),
+    "eating_out": ("CAFE", "GRILL", "EATERY", "BAKERY", "HOTEL"),
+    "transport": ("SACCO", "SHUTTLE", "RIDES", "COURIERS"),
+    "fuel": ("SERVICE STATION", "PETROL", "ENERGY"),
+    "rent": ("APARTMENTS", "HEIGHTS", "COURT", "PROPERTIES"),
+    "utilities": ("WATER CO", "POWER TOKENS", "FIBRE", "GAS REFILL"),
+    "school_fees": ("ACADEMY", "SCHOOL", "COLLEGE", "KINDERGARTEN"),
+    "health": ("PHARMACY", "CLINIC", "MEDICAL CENTRE", "CHEMIST"),
+    "lifestyle": ("LOUNGE", "GYM", "SALON", "CINEMA"),
+    "betting": ("BET", "SPORTS PREDICT", "JACKPOT"),
+    "shopping": ("FASHIONS", "ELECTRONICS", "HARDWARE", "BOUTIQUE"),
+    "giving": ("CHURCH", "HARAMBEE", "WELFARE GROUP", "FOUNDATION"),
+    "loan_repayment": ("CREDIT", "LOANS", "FINANCE"),
+    "savings": ("SACCO", "CHAMA", "INVESTMENT CLUB"),
+}
 
-def _payee(profile: _Profile, rng: np.random.Generator) -> str:
-    name = str(rng.choice(profile.names))
+
+def _invented_word(rng: np.random.Generator) -> str:
+    n = int(rng.integers(2, 4))
+    return "".join(str(rng.choice(_SYLLABLES)) for _ in range(n)).upper()
+
+
+class _VariedNames:
+    """Per-user favourite payees, a few shared popular ones and occasional one-offs."""
+
+    def __init__(self, rng: np.random.Generator) -> None:
+        self._rng = rng
+        self._favourites: dict[tuple[int, str], list[str]] = {}
+
+    def _invent(self, category: str, profile: _Profile) -> str:
+        rng = self._rng
+        marker = str(rng.choice(FAKE_MARKERS[:3]))
+        if profile.id_kind == "person":
+            return f"TEST {_invented_word(rng)} {_invented_word(rng)}"
+        words = _BUSINESS_WORDS.get(category)
+        if words is None:
+            return str(rng.choice(profile.names))
+        return f"{marker} {_invented_word(rng)} {rng.choice(words)}"
+
+    def pick(self, user: int, category: str, profile: _Profile) -> str:
+        rng = self._rng
+        favourites = self._favourites.setdefault((user, category), [])
+        roll = rng.random()
+        if roll < 0.15 and profile.id_kind != "person":
+            return str(rng.choice(profile.names))
+        if roll < 0.25 or not favourites:
+            name = self._invent(category, profile)
+            if len(favourites) < 3:
+                favourites.append(name)
+            return name
+        return favourites[int(rng.integers(0, len(favourites)))]
+
+
+def _payee(profile: _Profile, rng: np.random.Generator, name: str | None = None) -> str:
+    if name is None:
+        name = str(rng.choice(profile.names))
     n = int(rng.integers(1, 100))
     match profile.id_kind:
         case "till":
@@ -266,6 +329,9 @@ def generate(cfg: SyntheticDataConfig, categories: CategorySet | None = None) ->
     cats = categories or default_categories()
     labels = [c for c in cats.labels if c in PROFILES]
     rng = np.random.default_rng(cfg.seed)
+    varied = (
+        _VariedNames(np.random.default_rng([cfg.seed, 1])) if cfg.payee_style == "varied" else None
+    )
     out: list[Transaction] = []
     for u in range(cfg.n_users):
         user_id = f"synthetic-user-{u:05d}"
@@ -279,7 +345,9 @@ def generate(cfg: SyntheticDataConfig, categories: CategorySet | None = None) ->
                 label = labels[int(rng.integers(0, len(labels)))]
             out.append(
                 Transaction(
-                    payee=_payee(profile, rng),
+                    payee=_payee(
+                        profile, rng, varied.pick(u, category, profile) if varied else None
+                    ),
                     amount_minor=max(amount_kes, 1) * 100,
                     direction=profile.direction,
                     timestamp=_timestamp(profile, rng),

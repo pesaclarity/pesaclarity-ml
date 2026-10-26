@@ -45,3 +45,7 @@ jobs:
       - run: uv run akili train --config configs/smoke.yaml
       - run: uv run akili train --config configs/dp-sgd.yaml
       - run: uv run akili simulate --config configs/federated-smoke.yaml
+      # Quick audit: runs the attacks end to end; too small to pass, so report only.
+      - run: >-
+          uv run akili audit --quick --report-only
+          --config configs/audit-no-dp.yaml --config configs/audit-dp-sgd.yaml

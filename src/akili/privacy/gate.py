@@ -7,7 +7,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field
 
 from akili.privacy.accounting import PrivacyReport
-from akili.privacy.audit import AuditResult
+from akili.privacy.audit import AuditLimits, AuditResult, audit_failures, provisional_note
 from akili.tracks import Track, TrackPolicy, policy_for
 
 
@@ -19,7 +19,9 @@ class ReleaseEvidence(BaseModel):
     model_name: str
     track: Track
     privacy: PrivacyReport | None = None
-    audit: AuditResult | None = None
+    audit: AuditResult | tuple[AuditResult, ...] | None = None
+    """One attack's result, or every attack's (``results`` of ``audit-report.json``); the gate
+    checks each against the track limits, so the strongest attack decides."""
     cohort_size: int = Field(default=0, ge=0)
     secure_aggregation: bool = False
     dpia_filed: bool = False
@@ -35,6 +37,7 @@ class GateDecision(BaseModel):
     track: Track
     passed: bool
     failures: tuple[str, ...]
+    notes: tuple[str, ...] = ()
 
 
 def evaluate_release(evidence: ReleaseEvidence, policy: TrackPolicy | None = None) -> GateDecision:
@@ -61,20 +64,11 @@ def evaluate_release(evidence: ReleaseEvidence, policy: TrackPolicy | None = Non
             f"cohort of {evidence.cohort_size} is below the minimum {p.min_cohort_size}"
         )
 
-    if evidence.audit is None:
-        failures.append("no membership-inference audit")
-    elif evidence.audit.placeholder:
-        failures.append(f"membership-inference audit {evidence.audit.attack!r} is a placeholder")
-    else:
-        if evidence.audit.auc > p.max_attack_auc:
-            failures.append(
-                f"attack AUC {evidence.audit.auc:.3f} exceeds the limit {p.max_attack_auc}"
-            )
-        if evidence.audit.advantage > p.max_attack_advantage:
-            failures.append(
-                f"attack advantage {evidence.audit.advantage:.3f} exceeds the limit "
-                f"{p.max_attack_advantage}"
-            )
+    limits = AuditLimits.from_policy(p)
+    audits: tuple[AuditResult, ...] = (
+        (evidence.audit,) if isinstance(evidence.audit, AuditResult) else evidence.audit or ()
+    )
+    failures.extend(audit_failures(audits, limits))
 
     if not evidence.dpia_filed:
         failures.append("no data protection impact assessment filed with the ODPC")
@@ -96,6 +90,7 @@ def evaluate_release(evidence: ReleaseEvidence, policy: TrackPolicy | None = Non
         track=evidence.track,
         passed=not failures,
         failures=tuple(failures),
+        notes=provisional_note(limits),
     )
 
 
