@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Self
+from typing import Any, Literal, Self
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -21,6 +21,10 @@ class SyntheticDataConfig(_Strict):
     label_noise: float = Field(default=0.02, ge=0, lt=1)
     commercial_opt_in_rate: float = Field(default=0.2, ge=0, le=1)
     seed: int = 7
+    payee_style: Literal["basic", "varied"] = "basic"
+    """``basic`` draws from a few dozen fixed payee names. ``varied`` invents a long tail of
+    per-user merchants and people, closer to real statements and a harder test of memorisation
+    for the membership-inference audit."""
 
 
 class FeatureConfig(_Strict):
