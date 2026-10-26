@@ -1,4 +1,4 @@
-"""Command line: ``akili synth | vectors | epsilon | gate | train | simulate``."""
+"""Command line: ``akili synth | vectors | epsilon | gate | train | audit | simulate``."""
 
 from __future__ import annotations
 
@@ -8,8 +8,9 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from akili.config import ExperimentConfig, SyntheticDataConfig, load_config
+from akili.config import AuditConfig, ExperimentConfig, SyntheticDataConfig, load_config
 from akili.privacy.accounting import dp_fedavg_report, dp_sgd_report
+from akili.privacy.audit import AuditReport
 from akili.privacy.gate import evaluate_release, load_evidence
 from akili.synthetic import generate, write_jsonl
 from akili.tracks import Track
@@ -88,15 +89,85 @@ def _epsilon(args: argparse.Namespace) -> int:
 
 
 def _gate(args: argparse.Namespace) -> int:
-    decision = evaluate_release(load_evidence(args.evidence))
+    evidence = load_evidence(args.evidence)
+    if args.audit:
+        report = AuditReport.model_validate_json(Path(args.audit).read_text(encoding="utf-8"))
+        evidence = evidence.model_copy(update={"audit": report.results})
+    decision = evaluate_release(evidence)
     print(json.dumps(decision.model_dump(mode="json"), indent=2))
     return 0 if decision.passed else 1
+
+
+def _pct(value: float | None) -> str:
+    return "-" if value is None else f"{100 * value:.2f}%"
+
+
+def format_audit(report: AuditReport) -> str:
+    """A small table of every attack's numbers, then the verdict."""
+    eps = "no DP" if report.epsilon is None else f"DP-SGD, epsilon {report.epsilon:.3g}"
+    if report.dp and report.epsilon is None:
+        eps = "DP-SGD"
+    lines = [
+        f"{report.model_name} ({eps})",
+        f"  {'attack':<13} {'AUC':>6} {'AUC 95% CI':>15} {'adv':>6} "
+        f"{'TPR@0.1%':>9} {'TPR@1%':>8} {'n':>11}",
+    ]
+    for r in report.results:
+        ci = f"{r.auc_ci95[0]:.3f}-{r.auc_ci95[1]:.3f}" if r.auc_ci95 else "-"
+        lines.append(
+            f"  {r.attack:<13} {r.auc:>6.3f} {ci:>15} {r.advantage:>6.3f} "
+            f"{_pct(r.tpr_at_0_1pct_fpr):>9} {_pct(r.tpr_at_1pct_fpr):>8} "
+            f"{r.n_members:>5}+{r.n_non_members:<5}"
+        )
+    lim = report.limits
+    lines.append(
+        f"  limits: AUC <= {lim.max_auc}, advantage <= {lim.max_advantage}, "
+        f"TPR@0.1% <= {_pct(lim.max_tpr_at_0_1pct_fpr)}, "
+        f"TPR@1% <= {_pct(lim.max_tpr_at_1pct_fpr)}, >= {lim.min_examples} examples each"
+    )
+    lines.append("  PASS" if report.passed else "  FAIL")
+    lines.extend(f"    - {f}" for f in report.failures)
+    lines.extend(f"  note: {n}" for n in report.notes)
+    return "\n".join(lines)
+
+
+def _audit(args: argparse.Namespace) -> int:
+    from akili.privacy.mia import quick_config
+    from akili.train.pipeline import run_centralised
+
+    reports: list[AuditReport] = []
+    for path in args.config:
+        cfg = load_config(path)
+        if cfg.federated is not None:
+            print(f"{path}: the audit runs on centralised configs only", file=sys.stderr)
+            return 2
+        if args.quick:
+            cfg = quick_config(cfg)
+        audit = {**cfg.audit.model_dump(), "enabled": True}
+        if args.shadow_models is not None:
+            audit["shadow_models"] = args.shadow_models
+        cfg = cfg.model_copy(update={"audit": AuditConfig.model_validate(audit)})
+        name = cfg.name
+
+        def progress(msg: str, name: str = name) -> None:
+            print(f"[{name}] {msg}", file=sys.stderr)
+
+        result = run_centralised(cfg, progress=progress)
+        assert result.audit is not None
+        reports.append(result.audit)
+        print(format_audit(result.audit))
+        print(f"  report: {result.run_dir / 'audit-report.json'}")
+    if args.report_only:
+        return 0
+    return 0 if all(r.passed for r in reports) else 1
 
 
 def _train(args: argparse.Namespace) -> int:
     from akili.train.pipeline import run_centralised
 
-    result = run_centralised(load_config(args.config))
+    result = run_centralised(
+        load_config(args.config), progress=lambda msg: print(msg, file=sys.stderr)
+    )
     print(
         f"val accuracy {result.accuracy:.3f}; model {result.exported.size_bytes} bytes "
         f"at {result.exported.path}"
@@ -106,6 +177,8 @@ def _train(args: argparse.Namespace) -> int:
             f"privacy budget: epsilon {result.privacy.epsilon:.3g}, "
             f"delta {result.privacy.delta:.3g} ({result.privacy.unit.value}-level)"
         )
+    if result.audit is not None:
+        print(format_audit(result.audit))
     return 0
 
 
@@ -149,11 +222,33 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("gate", help="check release evidence against the track policy")
     p.add_argument("--evidence", required=True, help="ReleaseEvidence JSON file")
+    p.add_argument(
+        "--audit", help="audit-report.json from `akili audit`; replaces the evidence's audit"
+    )
     p.set_defaults(func=_gate)
 
     p = sub.add_parser("train", help="centralised training on synthetic data [train]")
     p.add_argument("--config", required=True)
     p.set_defaults(func=_train)
+
+    p = sub.add_parser(
+        "audit",
+        help="train, then run the membership-inference audit; fails over the limits [train]",
+    )
+    p.add_argument(
+        "--config",
+        required=True,
+        action="append",
+        help="centralised config; repeat to compare, e.g. smoke.yaml and dp-sgd.yaml",
+    )
+    p.add_argument(
+        "--quick", action="store_true", help="small data and 4 shadow models, for CI; never passes"
+    )
+    p.add_argument("--shadow-models", type=int, help="override audit.shadow_models (even)")
+    p.add_argument(
+        "--report-only", action="store_true", help="exit 0 even when the audit fails (CI smoke)"
+    )
+    p.set_defaults(func=_audit)
 
     p = sub.add_parser("simulate", help="federated simulation on synthetic users [train]")
     p.add_argument("--config", required=True)

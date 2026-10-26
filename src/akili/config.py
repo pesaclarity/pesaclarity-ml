@@ -73,6 +73,35 @@ class ExportConfig(_Strict):
     quantize: bool = True
 
 
+class AuditConfig(_Strict):
+    """Membership-inference audit of the trained model (needs the [train] extra).
+
+    Runs after training when ``enabled`` is true, and always under ``akili audit``. The pass/fail
+    limits come from the track policy in ``tracks.yaml``; the ``max_*``/``min_*`` fields here can
+    only tighten them, never loosen them.
+    """
+
+    enabled: bool = False
+    shadow_models: int = Field(default=16, ge=2)
+    """Shadow models for LiRA, trained exactly like the target. Each candidate is IN for half."""
+    max_candidates: int = Field(default=2000, ge=10)
+    """At most this many members and as many held-out non-members are attacked."""
+    score_exported: bool = True
+    """Score the exported TFLite file (what ships) rather than the Keras model."""
+    seed: int = 1234
+    max_attack_auc: float | None = Field(default=None, ge=0.5, le=1)
+    max_attack_advantage: float | None = Field(default=None, ge=0, le=1)
+    max_attack_tpr_at_1pct_fpr: float | None = Field(default=None, ge=0, le=1)
+    max_attack_tpr_at_0_1pct_fpr: float | None = Field(default=None, ge=0, le=1)
+    min_audit_examples: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def _even_shadows(self) -> Self:
+        if self.shadow_models % 2:
+            raise ValueError("shadow_models must be even: each candidate is IN for exactly half")
+        return self
+
+
 class TrackingConfig(_Strict):
     """Local MLflow by default: a SQLite file and an artefact folder under ``./mlruns``.
 
@@ -98,6 +127,7 @@ class ExperimentConfig(_Strict):
     dp: DPConfig = DPConfig()
     federated: FederatedConfig | None = None
     export: ExportConfig = ExportConfig()
+    audit: AuditConfig = AuditConfig()
     tracking: TrackingConfig = TrackingConfig()
 
     @model_validator(mode="after")

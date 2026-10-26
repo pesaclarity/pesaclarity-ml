@@ -10,6 +10,7 @@ from typing import Any, Self
 from akili._optional import require
 from akili.config import TrackingConfig
 from akili.privacy.accounting import PrivacyReport
+from akili.privacy.audit import AuditReport
 
 
 class Tracker:
@@ -64,6 +65,30 @@ class Tracker:
                 {"privacy.epsilon": report.epsilon, "privacy.delta": report.delta}
             )
             self._mlflow.log_dict(report.model_dump(mode="json"), "privacy-report.json")
+
+    def log_audit(self, report: AuditReport) -> None:
+        """Log each attack's numbers as ``audit.<attack>.<metric>`` and the report as JSON."""
+        if self._mlflow is None:
+            return
+        metrics: dict[str, float] = {"audit.passed": float(report.passed)}
+        for r in report.results:
+            values = {
+                "auc": r.auc,
+                "advantage": r.advantage,
+                "tpr_at_0_1pct_fpr": r.tpr_at_0_1pct_fpr,
+                "tpr_at_1pct_fpr": r.tpr_at_1pct_fpr,
+            }
+            for key, value in values.items():
+                if value is not None:
+                    metrics[f"audit.{r.attack}.{key}"] = float(value)
+        self._mlflow.log_metrics(metrics)
+        self._mlflow.set_tags(
+            {
+                "audit.passed": str(report.passed).lower(),
+                "audit.limits_provisional": str(report.limits.provisional).lower(),
+            }
+        )
+        self._mlflow.log_dict(report.model_dump(mode="json"), "audit-report.json")
 
     def log_artifact(self, path: str | Path) -> None:
         if self._mlflow is not None:

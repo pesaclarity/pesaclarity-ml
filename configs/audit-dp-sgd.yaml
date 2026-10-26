@@ -1,0 +1,25 @@
+# Membership-inference audit of DP-SGD training: same data and model as audit-no-dp.yaml, with
+# the DP-SGD settings of dp-sgd.yaml. 16 shadow models, each trained with DP-SGD; a few minutes
+# on a laptop CPU. Add --quick for a version under a minute (never passes the gate).
+name: audit-dp-sgd
+track: app
+seed: 42
+data:
+  n_users: 200
+  transactions_per_user: 60
+  payee_style: varied
+training:
+  epochs: 5
+  batch_size: 128
+  learning_rate: 0.5
+dp:
+  enabled: true
+  l2_norm_clip: 1.0
+  noise_multiplier: 1.1
+  target_delta: 1.0e-6
+export:
+  max_size_bytes: 512000
+audit:
+  enabled: true
+  shadow_models: 16
+  max_candidates: 2000
