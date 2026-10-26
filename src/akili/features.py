@@ -1,14 +1,16 @@
 """Feature extraction shared by training and the app.
 
-The app must reproduce this exactly in Dart, so it is deliberately simple: FNV-1a hashing of
-normalised payee tokens (no vocabulary file, so no payee list ships with the model) plus a few
-bucketed numeric features, packed into one int32 vector per transaction.
+The app reproduces this exactly in Dart; ``docs/FEATURES.md`` is the language-neutral spec and
+``resources/feature_vectors.v1.json`` the conformance vectors. Every step is ASCII-only integer
+arithmetic so the result never depends on locale, Unicode tables or the host time zone.
 
-Layout of the vector (length ``max_tokens + 5``)::
+Layout of the int32 vector (length ``max_tokens + 5``)::
 
     [token_0 .. token_{max_tokens-1}, amount_bucket, direction, hour_bucket, weekday, month_phase]
 
 Token id 0 is padding; real tokens hash into ``1 .. hash_buckets - 1``.
+
+Any change to the output of :func:`encode` must bump :data:`FEATURE_SCHEMA_VERSION`.
 """
 
 from __future__ import annotations
@@ -16,6 +18,8 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -23,22 +27,15 @@ import numpy.typing as npt
 from akili.config import FeatureConfig
 from akili.types import Direction, Transaction
 
-AMOUNT_EDGES_KES: tuple[float, ...] = (
-    50,
-    100,
-    250,
-    500,
-    1_000,
-    2_500,
-    5_000,
-    10_000,
-    25_000,
-    50_000,
-    100_000,
-)
-"""Upper-exclusive bucket edges; amounts at or above the last edge share the top bucket."""
+FEATURE_SCHEMA_VERSION = 1
+"""Version of the feature pipeline. Exported models record it; the app refuses a mismatch."""
 
-N_AMOUNT_BUCKETS = len(AMOUNT_EDGES_KES) + 1
+AMOUNT_EDGES_MINOR: tuple[int, ...] = tuple(
+    kes * 100 for kes in (50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000, 25_000, 50_000, 100_000)
+)
+"""Bucket edges in minor units (KES cents). Bucket = number of edges <= |amount|."""
+
+N_AMOUNT_BUCKETS = len(AMOUNT_EDGES_MINOR) + 1
 N_DIRECTIONS = 2
 N_HOUR_BUCKETS = 6
 N_WEEKDAYS = 7
@@ -52,11 +49,26 @@ CONTEXT_CARDINALITIES: tuple[int, ...] = (
     N_MONTH_PHASES,
 )
 
+CONTEXT_LAYOUT: tuple[str, ...] = (
+    "amount_bucket",
+    "direction",
+    "hour_bucket",
+    "weekday",
+    "month_phase",
+)
+
+NAIROBI = timezone(timedelta(hours=3), "EAT")
+"""Africa/Nairobi as a fixed UTC+3 offset; Kenya does not observe daylight saving time."""
+
 NUM_TOKEN = "<num>"
 PHONE_TOKEN = "<phone>"
 
-_MASKED_PHONE = re.compile(r"\b\d{2,4}\s?\*{2,}\s?\d{2,4}\b")
-_SPLIT = re.compile(r"[^0-9a-z]+")
+_ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
+# Character classes are spelled out so no engine applies Unicode semantics to \d, \s or \b.
+_MASKED_PHONE = re.compile(
+    r"(?<![0-9a-z])[0-9]{2,4}[\t\n\v\f\r ]?\*{2,}[\t\n\v\f\r ]?[0-9]{2,4}(?![0-9a-z])"
+)
+_WORD = re.compile(r"[0-9a-z]+")
 _FNV_OFFSET = 0x811C9DC5
 _FNV_PRIME = 0x01000193
 
@@ -70,17 +82,31 @@ def fnv1a_32(text: str) -> int:
     return h
 
 
+def _words(segment: str) -> list[str]:
+    return [NUM_TOKEN if re.search(r"[0-9]", w) else w for w in _WORD.findall(segment)]
+
+
 def tokenise(payee: str) -> list[str]:
-    """Normalise payee text; digit runs become ``<num>`` so ids and numbers do not leak."""
-    text = _MASKED_PHONE.sub(f" {PHONE_TOKEN} ", payee.lower())
+    """Normalise payee text into tokens.
+
+    ASCII letters are lower-cased; every other character except digits separates tokens. Masked
+    phone numbers (``0700***007``) become ``<phone>``, any token holding a digit becomes
+    ``<num>``, and runs of ``<num>`` collapse to one, so ids and numbers do not leak.
+    """
+    text = payee.translate(_ASCII_LOWER)
+    raw: list[str] = []
+    pos = 0
+    for match in _MASKED_PHONE.finditer(text):
+        raw.extend(_words(text[pos : match.start()]))
+        raw.append(PHONE_TOKEN)
+        pos = match.end()
+    raw.extend(_words(text[pos:]))
+
     tokens: list[str] = []
-    for raw in text.split():
-        parts = [PHONE_TOKEN] if raw == PHONE_TOKEN else [p for p in _SPLIT.split(raw) if p]
-        for part in parts:
-            token = NUM_TOKEN if any(ch.isdigit() for ch in part) else part
-            if token == NUM_TOKEN and tokens and tokens[-1] == NUM_TOKEN:
-                continue
-            tokens.append(token)
+    for token in raw:
+        if token == NUM_TOKEN and tokens and tokens[-1] == NUM_TOKEN:
+            continue
+        tokens.append(token)
     return tokens
 
 
@@ -90,12 +116,10 @@ def token_ids(payee: str, cfg: FeatureConfig) -> list[int]:
     return ids + [0] * (cfg.max_tokens - len(ids))
 
 
-def amount_bucket(amount_kes: float) -> int:
-    amount = abs(amount_kes)
-    for i, edge in enumerate(AMOUNT_EDGES_KES):
-        if amount < edge:
-            return i
-    return len(AMOUNT_EDGES_KES)
+def amount_bucket(amount_minor: int) -> int:
+    """Bucket of the absolute amount, in integer minor units."""
+    amount = abs(amount_minor)
+    return sum(1 for edge in AMOUNT_EDGES_MINOR if amount >= edge)
 
 
 def month_phase(day: int) -> int:
@@ -107,12 +131,19 @@ def month_phase(day: int) -> int:
     return 1
 
 
+def local_time(ts: datetime) -> datetime:
+    """``ts`` in Nairobi time. Naive datetimes are refused: their meaning depends on the host."""
+    if ts.tzinfo is None or ts.utcoffset() is None:
+        raise ValueError("transaction timestamps must be timezone-aware")
+    return ts.astimezone(NAIROBI)
+
+
 def encode(tx: Transaction, cfg: FeatureConfig) -> list[int]:
     """Encode one transaction into the packed feature vector."""
-    ts = tx.timestamp
+    ts = local_time(tx.timestamp)
     return [
         *token_ids(tx.payee, cfg),
-        amount_bucket(tx.amount_kes),
+        amount_bucket(tx.amount_minor),
         1 if tx.direction is Direction.IN else 0,
         ts.hour // 4,
         ts.weekday(),
@@ -122,6 +153,16 @@ def encode(tx: Transaction, cfg: FeatureConfig) -> list[int]:
 
 def feature_width(cfg: FeatureConfig) -> int:
     return cfg.max_tokens + N_CONTEXT_FEATURES
+
+
+def feature_manifest(cfg: FeatureConfig) -> dict[str, Any]:
+    """What the app needs to check that a model expects inputs it can produce."""
+    return {
+        "feature_schema_version": FEATURE_SCHEMA_VERSION,
+        "feature_config": cfg.model_dump(),
+        "input": {"name": "features", "dtype": "int32", "shape": [-1, feature_width(cfg)]},
+        "layout": [f"token_{i}" for i in range(cfg.max_tokens)] + list(CONTEXT_LAYOUT),
+    }
 
 
 @dataclass(frozen=True)

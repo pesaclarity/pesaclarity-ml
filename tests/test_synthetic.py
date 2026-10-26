@@ -29,7 +29,8 @@ def test_shape_and_labels() -> None:
     txs = generate(CFG)
     assert len(txs) == 300
     assert len({tx.user_id for tx in txs}) == 10
-    assert all(tx.amount_kes >= 1 for tx in txs)
+    assert all(tx.amount_minor >= 100 for tx in txs)
+    assert all(tx.timestamp.utcoffset() is not None for tx in txs)
     assert all(tx.category for tx in txs)
 
 
