@@ -36,7 +36,11 @@ configs/federated-smoke.yaml`).
   vectors with `uv run akili vectors`; a change to `categories.yaml` must bump its `version`. Say
   so in the PR.
 - **Privacy thresholds** in `tracks.yaml` may be tightened freely; loosening one needs a reason
-  in the PR and a maintainer's approval.
+  in the PR and a maintainer's approval. The membership-inference limits stay marked
+  `provisional: true` until issue #3 signs them off.
+- **Privacy code** (`privacy/`, `train/dp_sgd.py`): if you change an attack or the training
+  procedure, run the full audit pair (see [docs/PRIVACY-AUDIT.md](docs/PRIVACY-AUDIT.md)) and put
+  the before and after tables in the PR.
 
 ## Commits and pull requests
 

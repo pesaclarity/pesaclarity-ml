@@ -26,10 +26,11 @@ uv sync --all-extras                      # add TensorFlow, MLflow and Flower
 uv run akili train --config configs/smoke.yaml
 uv run akili train --config configs/dp-sgd.yaml
 uv run akili simulate --config configs/federated-smoke.yaml
+uv run akili audit --quick --config configs/audit-no-dp.yaml --config configs/audit-dp-sgd.yaml
 ```
 
-Runs write the TFLite model, `model-manifest.json`, `labels.json` and `privacy-report.json` to
-`artefacts/<name>/`, and
+Runs write the TFLite model, `model-manifest.json`, `labels.json`, `privacy-report.json` and,
+when audited, `audit-report.json` to `artefacts/<name>/`, and
 log to a local MLflow store in `mlruns/` (`uv run mlflow ui --backend-store-uri
 sqlite:///mlruns/mlflow.db` to browse). Both folders are git-ignored.
 
@@ -53,6 +54,8 @@ feature schema version, so the app can refuse a model it cannot feed.
 | --- | --- |
 | `configs/smoke.yaml` | Centralised training, no DP. Fast check that everything works. |
 | `configs/dp-sgd.yaml` | Centralised DP-SGD; reports example-level epsilon and delta. |
+| `configs/audit-no-dp.yaml` | Membership-inference audit baseline: varied payees, no DP. Fails. |
+| `configs/audit-dp-sgd.yaml` | The same data and model with DP-SGD, audited with 16 shadow models. |
 | `configs/federated-smoke.yaml` | Federated simulation without update noise; mechanics only. |
 | `configs/federated-app.yaml` | DP-FedAvg simulation on the app track; user-level budget. |
 | `configs/federated-commercial.yaml` | Commercial track: opted-in users only, cohort of 1,000+. |
@@ -69,15 +72,21 @@ computed with Google's `dp-accounting` (the accountant tensorflow-privacy uses).
 
 No model leaves the server until `akili gate --evidence <file>` passes: DP budget within the
 track limits, secure aggregation, minimum cohort, a real membership-inference audit within the
-limits, a DPIA filed with the ODPC and, for the commercial track, legal review. The audit attack
-itself is still a placeholder that always fails the gate. See
+limits, a DPIA filed with the ODPC and, for the commercial track, legal review. See
 [docs/RELEASE-CHECKLIST.md](docs/RELEASE-CHECKLIST.md).
+
+`akili audit` trains the model, then attacks it with a loss-threshold attack and LiRA (online
+and offline, with shadow models trained the same way) and reports attack AUC, advantage and the
+true-positive rate at 0.1% and 1% false positives. The audit limits are **provisional** until
+[#3](https://github.com/pesaclarity/pesaclarity-ml/issues/3) reviews them. How to run it and read
+the numbers: [docs/PRIVACY-AUDIT.md](docs/PRIVACY-AUDIT.md).
 
 ## Project layout
 
 ```text
 configs/                  experiment configs (YAML, validated by pydantic)
 docs/FEATURES.md          feature pipeline spec for the app
+docs/PRIVACY-AUDIT.md     membership-inference audit: running it, reading it
 docs/RELEASE-CHECKLIST.md release conditions for any model
 src/akili/
   resources/              categories.yaml, tracks.yaml, feature test vectors
@@ -89,7 +98,8 @@ src/akili/
   train/                  centralised and DP-SGD training   [train]
   export/                 TFLite export and size budget
   federated/              client, update maths, simulation, Flower adapter
-  privacy/                privacy accounting, membership-inference audit, release gate
+  privacy/                privacy accounting, membership-inference audit (mia.py [train]),
+                          release gate
   tracking.py             MLflow wrapper                    [train]
   cli.py                  the `akili` command
 tests/                    pytest; test_tf_* need the [train] extra
