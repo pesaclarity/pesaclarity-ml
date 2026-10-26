@@ -13,6 +13,7 @@ Copy this list into the release issue and fill it in.
 - Model name and version:
 - Track: app / commercial
 - Category set version (`labels.json`):
+- Feature schema version (`model-manifest.json`):
 - MLflow run id:
 - TFLite SHA-256:
 

@@ -31,8 +31,10 @@ configs/federated-smoke.yaml`).
   numbers, not even in a test. Extend `synthetic.py` instead; its payees are marked DEMO, SAMPLE,
   FAKE or TEST and its numbers start with 000 or 0700.
 - **No weights or run outputs.** `artefacts/`, `mlruns/` and model files stay out of git.
-- **Features are a contract with the app.** A change to `features.py` or `categories.yaml`
-  changes what the Dart side must compute; bump the category set `version` and say so in the PR.
+- **Features are a contract with the app.** A change to the output of `features.py` must bump
+  `FEATURE_SCHEMA_VERSION`, update [docs/FEATURES.md](docs/FEATURES.md) and regenerate the
+  vectors with `uv run akili vectors`; a change to `categories.yaml` must bump its `version`. Say
+  so in the PR.
 - **Privacy thresholds** in `tracks.yaml` may be tightened freely; loosening one needs a reason
   in the PR and a maintainer's approval.
 
