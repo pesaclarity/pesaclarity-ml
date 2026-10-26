@@ -1,0 +1,26 @@
+# Training tracks from the spec ("Federated learning and model licensing").
+# Every release on either track needs DP-SGD with a published budget, secure aggregation,
+# a minimum cohort and a passing membership-inference audit.
+# Numbers are starting points to tune before the first release; tightening them never needs a code change.
+app:
+  description: Improves parsing, categorisation and insights for users.
+  consent_key: improve_app
+  default_opt_in: true
+  licensable: false
+  max_epsilon: 8.0
+  max_delta: 1.0e-6
+  min_cohort_size: 100
+  max_attack_auc: 0.60
+  max_attack_advantage: 0.10
+  requires_legal_review: false
+commercial:
+  description: Trains models that may be licensed. Separate opt-in, withdraw any time.
+  consent_key: contribute_licensed_models
+  default_opt_in: false
+  licensable: true
+  max_epsilon: 3.0
+  max_delta: 1.0e-7
+  min_cohort_size: 1000
+  max_attack_auc: 0.55
+  max_attack_advantage: 0.05
+  requires_legal_review: true

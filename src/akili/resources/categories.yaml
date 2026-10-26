@@ -1,0 +1,33 @@
+# Default Kenyan category set shipped with the app and used as the categoriser's label space.
+# Changing ids or order changes the model's output layer: bump `version` and retrain.
+#
+# type: income | expense | debt | savings | tax | transfer (matches the app's categories table)
+# daily: counts towards the daily safe-to-spend budget
+# target: the categoriser predicts it; false means rules handle it (own transfers) or it is the fallback
+version: 1
+fallback: uncategorised
+categories:
+  - {id: salary, name: Salary, type: income, daily: false, target: true}
+  - {id: business_income, name: Business and freelance income, type: income, daily: false, target: true}
+  - {id: money_received, name: Money received from people, type: income, daily: false, target: true}
+  - {id: groceries, name: Groceries and household, type: expense, daily: true, target: true}
+  - {id: eating_out, name: Eating out, type: expense, daily: true, target: true}
+  - {id: transport, name: Transport, type: expense, daily: true, target: true}
+  - {id: fuel, name: Fuel, type: expense, daily: false, target: true}
+  - {id: airtime_data, name: Airtime and data, type: expense, daily: true, target: true}
+  - {id: rent, name: Rent and housing, type: expense, daily: false, target: true}
+  - {id: utilities, name: Electricity, water and internet, type: expense, daily: false, target: true}
+  - {id: school_fees, name: School fees and education, type: expense, daily: false, target: true}
+  - {id: health, name: Health and insurance, type: expense, daily: false, target: true}
+  - {id: family_support, name: Family support, type: expense, daily: false, target: true}
+  - {id: friends_social, name: Friends and social, type: expense, daily: true, target: true}
+  - {id: lifestyle, name: Lifestyle and entertainment, type: expense, daily: true, target: true}
+  - {id: betting, name: Betting and gaming, type: expense, daily: true, target: true}
+  - {id: shopping, name: Shopping and clothing, type: expense, daily: false, target: true}
+  - {id: giving, name: Church, giving and harambee, type: expense, daily: false, target: true}
+  - {id: fees_charges, name: Fees and charges, type: expense, daily: false, target: true}
+  - {id: loan_repayment, name: Loan and Fuliza repayment, type: debt, daily: false, target: true}
+  - {id: savings, name: Savings, SACCO and money market, type: savings, daily: false, target: true}
+  - {id: tax, name: Tax, type: tax, daily: false, target: true}
+  - {id: own_transfer, name: Own transfer, type: transfer, daily: false, target: false}
+  - {id: uncategorised, name: Uncategorised, type: expense, daily: false, target: false}
