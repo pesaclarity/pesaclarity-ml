@@ -1,4 +1,4 @@
-"""Command line: ``akili synth | epsilon | gate | train | simulate``."""
+"""Command line: ``akili synth | vectors | epsilon | gate | train | simulate``."""
 
 from __future__ import annotations
 
@@ -6,12 +6,14 @@ import argparse
 import json
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 
 from akili.config import ExperimentConfig, SyntheticDataConfig, load_config
 from akili.privacy.accounting import dp_fedavg_report, dp_sgd_report
 from akili.privacy.gate import evaluate_release, load_evidence
 from akili.synthetic import generate, write_jsonl
 from akili.tracks import Track
+from akili.vectors import build_vectors, default_path, render, write_vectors
 
 
 def _synth(args: argparse.Namespace) -> int:
@@ -21,6 +23,19 @@ def _synth(args: argparse.Namespace) -> int:
     txs = generate(cfg)
     write_jsonl(txs, args.out)
     print(f"wrote {len(txs)} synthetic transactions to {args.out}")
+    return 0
+
+
+def _vectors(args: argparse.Namespace) -> int:
+    path = Path(args.out) if args.out else default_path()
+    if args.check:
+        current = path.read_text(encoding="utf-8") if path.exists() else ""
+        if current != render(build_vectors()):
+            print(f"{path} is out of date; run `akili vectors`", file=sys.stderr)
+            return 1
+        print(f"{path} matches the feature code")
+        return 0
+    print(f"wrote feature test vectors to {write_vectors(path)}")
     return 0
 
 
@@ -121,6 +136,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--per-user", type=int, default=50)
     p.add_argument("--seed", type=int, default=7)
     p.set_defaults(func=_synth)
+
+    p = sub.add_parser("vectors", help="regenerate the feature test vectors for the app")
+    p.add_argument("--out", help="output path (default: the committed file in the package)")
+    p.add_argument("--check", action="store_true", help="fail if the file is out of date")
+    p.set_defaults(func=_vectors)
 
     p = sub.add_parser("epsilon", help="report the privacy budget a config would spend")
     p.add_argument("--config", required=True)

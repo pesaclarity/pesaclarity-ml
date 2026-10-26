@@ -19,6 +19,7 @@ Needs Python 3.12 and [uv](https://docs.astral.sh/uv/).
 uv sync                                   # core: data, configs, features, privacy gate
 uv run pytest                             # core tests; TensorFlow tests skip
 uv run akili synth --out /tmp/tx.jsonl    # write synthetic transactions
+uv run akili vectors                      # regenerate the feature test vectors for the app
 uv run akili epsilon --config configs/dp-sgd.yaml
 
 uv sync --all-extras                      # add TensorFlow, MLflow and Flower
@@ -27,7 +28,8 @@ uv run akili train --config configs/dp-sgd.yaml
 uv run akili simulate --config configs/federated-smoke.yaml
 ```
 
-Runs write the TFLite model, `labels.json` and `privacy-report.json` to `artefacts/<name>/`, and
+Runs write the TFLite model, `model-manifest.json`, `labels.json` and `privacy-report.json` to
+`artefacts/<name>/`, and
 log to a local MLflow store in `mlruns/` (`uv run mlflow ui --backend-store-uri
 sqlite:///mlruns/mlflow.db` to browse). Both folders are git-ignored.
 
@@ -39,7 +41,11 @@ over the default Kenyan category set in
 [`src/akili/resources/categories.yaml`](src/akili/resources/categories.yaml). About 70k
 parameters; the quantised TFLite file is about 80 KB, against a 512 KB budget in the configs.
 The app must reproduce [`features.py`](src/akili/features.py) exactly in Dart; it uses FNV-1a
-hashing so no payee vocabulary ships with the model.
+hashing so no payee vocabulary ships with the model. [docs/FEATURES.md](docs/FEATURES.md) is the
+language-neutral spec, and
+[`feature_vectors.v1.json`](src/akili/resources/feature_vectors.v1.json) holds the conformance
+cases the Dart code must pass. Each exported model carries a `model-manifest.json` with the
+feature schema version, so the app can refuse a model it cannot feed.
 
 ## Configs and tracks
 
@@ -71,12 +77,14 @@ itself is still a placeholder that always fails the gate. See
 
 ```text
 configs/                  experiment configs (YAML, validated by pydantic)
+docs/FEATURES.md          feature pipeline spec for the app
 docs/RELEASE-CHECKLIST.md release conditions for any model
 src/akili/
-  resources/              categories.yaml, tracks.yaml
+  resources/              categories.yaml, tracks.yaml, feature test vectors
   config.py               experiment config models
   features.py             feature extraction shared with the app
   synthetic.py            fake transactions for tests and smoke training
+  vectors.py              feature test vectors (`akili vectors`)
   model.py                the Keras categoriser            [train]
   train/                  centralised and DP-SGD training   [train]
   export/                 TFLite export and size budget

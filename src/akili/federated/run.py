@@ -10,6 +10,7 @@ import numpy as np
 
 from akili.categories import default_categories
 from akili.config import ExperimentConfig
+from akili.export.manifest import write_model_manifest
 from akili.export.size import ExportedModel
 from akili.export.tflite import export_tflite
 from akili.features import encode_batch
@@ -86,5 +87,6 @@ def run_federated(cfg: ExperimentConfig) -> FederatedRunResult:
         tracker.log_metrics({"val.accuracy": accuracy})
         exported = export_tflite(model, run_dir / "categoriser.tflite", cfg.export)
         tracker.log_artifact(exported.path)
+        tracker.log_artifact(write_model_manifest(exported, cfg.features))
 
     return FederatedRunResult(simulation=sim, accuracy=accuracy, exported=exported, run_dir=run_dir)

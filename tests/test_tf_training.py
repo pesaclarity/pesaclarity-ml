@@ -96,6 +96,7 @@ def test_pipeline_tracks_dp_run(tmp_path: Path) -> None:
     assert result.privacy is not None
     assert (result.run_dir / "privacy-report.json").exists()
     assert (result.run_dir / "labels.json").exists()
+    assert (result.run_dir / "model-manifest.json").exists()
     run = mlflow.get_run(result.run_id)
     assert run.data.metrics["privacy.epsilon"] == pytest.approx(result.privacy.epsilon)
     assert run.data.tags["track"] == "app"

@@ -1,0 +1,2183 @@
+{
+  "feature_schema_version": 1,
+  "feature_config": {
+    "max_tokens": 8,
+    "hash_buckets": 4096
+  },
+  "input": {
+    "name": "features",
+    "dtype": "int32",
+    "shape": [
+      -1,
+      13
+    ]
+  },
+  "layout": [
+    "token_0",
+    "token_1",
+    "token_2",
+    "token_3",
+    "token_4",
+    "token_5",
+    "token_6",
+    "token_7",
+    "amount_bucket",
+    "direction",
+    "hour_bucket",
+    "weekday",
+    "month_phase"
+  ],
+  "amount_edges_minor": [
+    5000,
+    10000,
+    25000,
+    50000,
+    100000,
+    250000,
+    500000,
+    1000000,
+    2500000,
+    5000000,
+    10000000
+  ],
+  "hash_checks": [
+    {
+      "text": "",
+      "fnv1a_32": 2166136261
+    },
+    {
+      "text": "a",
+      "fnv1a_32": 3826002220
+    },
+    {
+      "text": "foobar",
+      "fnv1a_32": 3214735720
+    },
+    {
+      "text": "<num>",
+      "fnv1a_32": 1906961957
+    },
+    {
+      "text": "<phone>",
+      "fnv1a_32": 457341333
+    },
+    {
+      "text": "demo",
+      "fnv1a_32": 2935829814
+    }
+  ],
+  "cases": [
+    {
+      "id": "till_basic",
+      "note": "till number becomes <num>",
+      "input": {
+        "payee": "DEMO FRESH MART TILL 000123",
+        "amount_minor": 120000,
+        "direction": "out",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "demo",
+          "fresh",
+          "mart",
+          "till",
+          "<num>"
+        ],
+        "features": [
+          1465,
+          2153,
+          3589,
+          3055,
+          2358,
+          0,
+          0,
+          0,
+          5,
+          0,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "paybill_account",
+      "note": "paybill and account numbers",
+      "input": {
+        "payee": "SAMPLE WATER COMPANY PAYBILL 000400 ACC 0001",
+        "amount_minor": 250000,
+        "direction": "out",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "sample",
+          "water",
+          "company",
+          "paybill",
+          "<num>",
+          "acc",
+          "<num>"
+        ],
+        "features": [
+          375,
+          1732,
+          3989,
+          828,
+          2358,
+          2947,
+          2358,
+          0,
+          6,
+          0,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "phone_masked",
+      "note": "masked phone",
+      "input": {
+        "payee": "TEST PERSON 07 0700***007",
+        "amount_minor": 200000,
+        "direction": "in",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "test",
+          "person",
+          "<num>",
+          "<phone>"
+        ],
+        "features": [
+          3996,
+          3279,
+          2358,
+          3544,
+          0,
+          0,
+          0,
+          0,
+          5,
+          1,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "phone_spaced",
+      "note": "one space either side of the stars",
+      "input": {
+        "payee": "TEST PERSON 0700 *** 007",
+        "amount_minor": 50000,
+        "direction": "in",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "test",
+          "person",
+          "<phone>"
+        ],
+        "features": [
+          3996,
+          3279,
+          3544,
+          0,
+          0,
+          0,
+          0,
+          0,
+          4,
+          1,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "phone_tabbed",
+      "note": "ASCII tab counts as the optional space",
+      "input": {
+        "payee": "TEST PERSON 0700\t***\t007",
+        "amount_minor": 50000,
+        "direction": "in",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "test",
+          "person",
+          "<phone>"
+        ],
+        "features": [
+          3996,
+          3279,
+          3544,
+          0,
+          0,
+          0,
+          0,
+          0,
+          4,
+          1,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "phone_two_spaces",
+      "note": "two spaces break the mask",
+      "input": {
+        "payee": "TEST PERSON 0700  ***007",
+        "amount_minor": 50000,
+        "direction": "out",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "test",
+          "person",
+          "<num>"
+        ],
+        "features": [
+          3996,
+          3279,
+          2358,
+          0,
+          0,
+          0,
+          0,
+          0,
+          4,
+          0,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "phone_five_digits",
+      "note": "5 leading digits is not a mask",
+      "input": {
+        "payee": "TEST PERSON 07000***007",
+        "amount_minor": 50000,
+        "direction": "out",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "test",
+          "person",
+          "<num>"
+        ],
+        "features": [
+          3996,
+          3279,
+          2358,
+          0,
+          0,
+          0,
+          0,
+          0,
+          4,
+          0,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "phone_one_star",
+      "note": "one star is not a mask",
+      "input": {
+        "payee": "TEST PERSON 0700*007",
+        "amount_minor": 50000,
+        "direction": "out",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "test",
+          "person",
+          "<num>"
+        ],
+        "features": [
+          3996,
+          3279,
+          2358,
+          0,
+          0,
+          0,
+          0,
+          0,
+          4,
+          0,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "phone_glued_to_letters",
+      "note": "mask must not touch letters",
+      "input": {
+        "payee": "TESTX0700***007",
+        "amount_minor": 50000,
+        "direction": "out",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "<num>"
+        ],
+        "features": [
+          2358,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          4,
+          0,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "phone_twice",
+      "note": "two masks in a row stay separate",
+      "input": {
+        "payee": "0700***001 0700***002",
+        "amount_minor": 50000,
+        "direction": "in",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "<phone>",
+          "<phone>"
+        ],
+        "features": [
+          3544,
+          3544,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          4,
+          1,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "phone_then_numbers",
+      "note": "<num> after <phone> is kept",
+      "input": {
+        "payee": "TEST PERSON 0700***007 000123 000456",
+        "amount_minor": 50000,
+        "direction": "out",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "test",
+          "person",
+          "<phone>",
+          "<num>"
+        ],
+        "features": [
+          3996,
+          3279,
+          3544,
+          2358,
+          0,
+          0,
+          0,
+          0,
+          4,
+          0,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "phone_literal_text",
+      "note": "the text <phone> is not a phone token",
+      "input": {
+        "payee": "DEMO <PHONE> SHOP",
+        "amount_minor": 50000,
+        "direction": "out",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "demo",
+          "phone",
+          "shop"
+        ],
+        "features": [
+          1465,
+          1416,
+          1488,
+          0,
+          0,
+          0,
+          0,
+          0,
+          4,
+          0,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "empty",
+      "note": "empty payee: all padding",
+      "input": {
+        "payee": "",
+        "amount_minor": 10000,
+        "direction": "out",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [],
+        "features": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2,
+          0,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "whitespace_only",
+      "note": "only whitespace",
+      "input": {
+        "payee": " \t\r\n ",
+        "amount_minor": 10000,
+        "direction": "out",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [],
+        "features": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2,
+          0,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "punctuation_only",
+      "note": "only punctuation",
+      "input": {
+        "payee": "--- *** ... ///",
+        "amount_minor": 10000,
+        "direction": "out",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [],
+        "features": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2,
+          0,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "mixed_case",
+      "note": "ASCII case folding",
+      "input": {
+        "payee": "Demo Coffee HOUSE",
+        "amount_minor": 45000,
+        "direction": "out",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "demo",
+          "coffee",
+          "house"
+        ],
+        "features": [
+          1465,
+          3575,
+          1309,
+          0,
+          0,
+          0,
+          0,
+          0,
+          3,
+          0,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "punctuation_inside",
+      "note": "apostrophe, hyphen, ampersand split",
+      "input": {
+        "payee": "MAMA'S KIBANDA-CAFE & GRILL",
+        "amount_minor": 60000,
+        "direction": "out",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "mama",
+          "s",
+          "kibanda",
+          "cafe",
+          "grill"
+        ],
+        "features": [
+          2382,
+          1853,
+          740,
+          3992,
+          2948,
+          0,
+          0,
+          0,
+          4,
+          0,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "alnum_mix",
+      "note": "any digit makes the whole token <num>",
+      "input": {
+        "payee": "SAMPLE 4G DATA 2GB",
+        "amount_minor": 9900,
+        "direction": "out",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "sample",
+          "<num>",
+          "data",
+          "<num>"
+        ],
+        "features": [
+          375,
+          2358,
+          2732,
+          2358,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "numbers_collapse",
+      "note": "consecutive <num> collapse",
+      "input": {
+        "payee": "PAYBILL 000400 000401 ACC 1 2 3",
+        "amount_minor": 300000,
+        "direction": "out",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "paybill",
+          "<num>",
+          "acc",
+          "<num>"
+        ],
+        "features": [
+          828,
+          2358,
+          2947,
+          2358,
+          0,
+          0,
+          0,
+          0,
+          6,
+          0,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "underscore",
+      "note": "underscore separates",
+      "input": {
+        "payee": "DEMO_SHOP_TILL_000111",
+        "amount_minor": 30000,
+        "direction": "out",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "demo",
+          "shop",
+          "till",
+          "<num>"
+        ],
+        "features": [
+          1465,
+          1488,
+          3055,
+          2358,
+          0,
+          0,
+          0,
+          0,
+          3,
+          0,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "accented",
+      "note": "non-ASCII letters separate",
+      "input": {
+        "payee": "D\u00c9MO CAF\u00c9",
+        "amount_minor": 35000,
+        "direction": "out",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "d",
+          "mo",
+          "caf"
+        ],
+        "features": [
+          1559,
+          1146,
+          3642,
+          0,
+          0,
+          0,
+          0,
+          0,
+          3,
+          0,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "combining_accent",
+      "note": "combining mark separates",
+      "input": {
+        "payee": "DEMO CAFE\u0301 BAR",
+        "amount_minor": 35000,
+        "direction": "out",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "demo",
+          "cafe",
+          "bar"
+        ],
+        "features": [
+          1465,
+          3992,
+          2313,
+          0,
+          0,
+          0,
+          0,
+          0,
+          3,
+          0,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "dotted_capital_i",
+      "note": "no Unicode case mapping",
+      "input": {
+        "payee": "\u0130STANBUL DEMO GRILL",
+        "amount_minor": 35000,
+        "direction": "out",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "stanbul",
+          "demo",
+          "grill"
+        ],
+        "features": [
+          2642,
+          1465,
+          2948,
+          0,
+          0,
+          0,
+          0,
+          0,
+          3,
+          0,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "kelvin_sign",
+      "note": "K (U+212A) is not k",
+      "input": {
+        "payee": "\u212aIOSK DEMO",
+        "amount_minor": 35000,
+        "direction": "out",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "iosk",
+          "demo"
+        ],
+        "features": [
+          3541,
+          1465,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          3,
+          0,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "fullwidth",
+      "note": "no NFKC: fullwidth letters separate",
+      "input": {
+        "payee": "\uff24\uff25\uff2d\uff2f SHOP",
+        "amount_minor": 35000,
+        "direction": "out",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "shop"
+        ],
+        "features": [
+          1488,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          3,
+          0,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "arabic_indic_digits",
+      "note": "only ASCII digits are digits",
+      "input": {
+        "payee": "DEMO \u0660\u0667\u0660\u0660",
+        "amount_minor": 35000,
+        "direction": "out",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "demo"
+        ],
+        "features": [
+          1465,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          3,
+          0,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "superscript_digit",
+      "note": "superscript is a separator",
+      "input": {
+        "payee": "DEMO\u00b2 MART",
+        "amount_minor": 35000,
+        "direction": "out",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "demo",
+          "mart"
+        ],
+        "features": [
+          1465,
+          3589,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          3,
+          0,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "emoji",
+      "note": "astral code points separate",
+      "input": {
+        "payee": "DEMO \ud83d\uded2SHOP",
+        "amount_minor": 35000,
+        "direction": "out",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "demo",
+          "shop"
+        ],
+        "features": [
+          1465,
+          1488,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          3,
+          0,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "cjk",
+      "note": "CJK separates",
+      "input": {
+        "payee": "\u793a\u4f8b DEMO",
+        "amount_minor": 35000,
+        "direction": "out",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "demo"
+        ],
+        "features": [
+          1465,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          3,
+          0,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "zero_width_space",
+      "note": "U+200B separates",
+      "input": {
+        "payee": "DEMO\u200bSHOP",
+        "amount_minor": 35000,
+        "direction": "out",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "demo",
+          "shop"
+        ],
+        "features": [
+          1465,
+          1488,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          3,
+          0,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "no_break_space",
+      "note": "U+00A0 separates",
+      "input": {
+        "payee": "DEMO\u00a0SHOP",
+        "amount_minor": 35000,
+        "direction": "out",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "demo",
+          "shop"
+        ],
+        "features": [
+          1465,
+          1488,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          3,
+          0,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "swahili",
+      "note": "plain Swahili words",
+      "input": {
+        "payee": "FAKE DUKA LA MAMA MBOGA",
+        "amount_minor": 15000,
+        "direction": "out",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "fake",
+          "duka",
+          "la",
+          "mama",
+          "mboga"
+        ],
+        "features": [
+          3830,
+          660,
+          3395,
+          2382,
+          1083,
+          0,
+          0,
+          0,
+          2,
+          0,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "exactly_max_tokens",
+      "note": "8 tokens fill every slot",
+      "input": {
+        "payee": "A B C D E F G H",
+        "amount_minor": 15000,
+        "direction": "out",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "a",
+          "b",
+          "c",
+          "d",
+          "e",
+          "f",
+          "g",
+          "h"
+        ],
+        "features": [
+          2771,
+          3983,
+          3579,
+          1559,
+          1155,
+          2367,
+          1963,
+          2312,
+          2,
+          0,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "over_max_tokens",
+      "note": "9th token dropped",
+      "input": {
+        "payee": "A B C D E F G H I",
+        "amount_minor": 15000,
+        "direction": "out",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "a",
+          "b",
+          "c",
+          "d",
+          "e",
+          "f",
+          "g",
+          "h",
+          "i"
+        ],
+        "features": [
+          2771,
+          3983,
+          3579,
+          1559,
+          1155,
+          2367,
+          1963,
+          2312,
+          2,
+          0,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "long_name",
+      "note": "long name truncated to the first 8 tokens",
+      "input": {
+        "payee": "SAMPLE WORDA SAMPLE WORDB SAMPLE WORDC SAMPLE WORDD SAMPLE WORDE SAMPLE WORDF SAMPLE WORDG SAMPLE WORDH SAMPLE WORDI SAMPLE WORDJ SAMPLE WORDK SAMPLE WORDL SAMPLE WORDM SAMPLE WORDN SAMPLE WORDO SAMPLE WORDP SAMPLE WORDQ SAMPLE WORDR SAMPLE WORDS SAMPLE WORDT SAMPLE WORDU SAMPLE WORDV SAMPLE WORDW SAMPLE WORDX SAMPLE WORDY SAMPLE WORDZ SAMPLE WORDA SAMPLE WORDB SAMPLE WORDC SAMPLE WORDD SAMPLE WORDE SAMPLE WORDF SAMPLE WORDG SAMPLE WORDH SAMPLE WORDI SAMPLE WORDJ SAMPLE WORDK SAMPLE WORDL SAMPLE WORDM SAMPLE WORDN",
+        "amount_minor": 15000,
+        "direction": "in",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "sample",
+          "worda",
+          "sample",
+          "wordb",
+          "sample",
+          "wordc",
+          "sample",
+          "wordd",
+          "sample",
+          "worde",
+          "sample",
+          "wordf",
+          "sample",
+          "wordg",
+          "sample",
+          "wordh",
+          "sample",
+          "wordi",
+          "sample",
+          "wordj",
+          "sample",
+          "wordk",
+          "sample",
+          "wordl",
+          "sample",
+          "wordm",
+          "sample",
+          "wordn",
+          "sample",
+          "wordo",
+          "sample",
+          "wordp",
+          "sample",
+          "wordq",
+          "sample",
+          "wordr",
+          "sample",
+          "words",
+          "sample",
+          "wordt",
+          "sample",
+          "wordu",
+          "sample",
+          "wordv",
+          "sample",
+          "wordw",
+          "sample",
+          "wordx",
+          "sample",
+          "wordy",
+          "sample",
+          "wordz",
+          "sample",
+          "worda",
+          "sample",
+          "wordb",
+          "sample",
+          "wordc",
+          "sample",
+          "wordd",
+          "sample",
+          "worde",
+          "sample",
+          "wordf",
+          "sample",
+          "wordg",
+          "sample",
+          "wordh",
+          "sample",
+          "wordi",
+          "sample",
+          "wordj",
+          "sample",
+          "wordk",
+          "sample",
+          "wordl",
+          "sample",
+          "wordm",
+          "sample",
+          "wordn"
+        ],
+        "features": [
+          375,
+          3195,
+          375,
+          312,
+          375,
+          4003,
+          375,
+          1983,
+          2,
+          1,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "long_token",
+      "note": "one 600-character token",
+      "input": {
+        "payee": "DEMO XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+        "amount_minor": 15000,
+        "direction": "out",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "demo",
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        ],
+        "features": [
+          1465,
+          3382,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2,
+          0,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "amount_zero",
+      "note": "zero",
+      "input": {
+        "payee": "DEMO BANK CHARGES",
+        "amount_minor": 0,
+        "direction": "out",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "demo",
+          "bank",
+          "charges"
+        ],
+        "features": [
+          1465,
+          2086,
+          4088,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "amount_one_cent",
+      "note": "one cent",
+      "input": {
+        "payee": "DEMO BANK CHARGES",
+        "amount_minor": 1,
+        "direction": "out",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "demo",
+          "bank",
+          "charges"
+        ],
+        "features": [
+          1465,
+          2086,
+          4088,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "amount_below_edge",
+      "note": "KES 49.99",
+      "input": {
+        "payee": "DEMO BANK CHARGES",
+        "amount_minor": 4999,
+        "direction": "out",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "demo",
+          "bank",
+          "charges"
+        ],
+        "features": [
+          1465,
+          2086,
+          4088,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "amount_on_edge",
+      "note": "KES 50.00 is in the next bucket",
+      "input": {
+        "payee": "DEMO BANK CHARGES",
+        "amount_minor": 5000,
+        "direction": "out",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "demo",
+          "bank",
+          "charges"
+        ],
+        "features": [
+          1465,
+          2086,
+          4088,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "amount_mid",
+      "note": "KES 9,999.99",
+      "input": {
+        "payee": "DEMO HARDWARE",
+        "amount_minor": 999999,
+        "direction": "out",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "demo",
+          "hardware"
+        ],
+        "features": [
+          1465,
+          909,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          7,
+          0,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "amount_top_edge",
+      "note": "KES 100,000.00",
+      "input": {
+        "payee": "DEMO EMPLOYER LTD SALARY",
+        "amount_minor": 10000000,
+        "direction": "in",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "demo",
+          "employer",
+          "ltd",
+          "salary"
+        ],
+        "features": [
+          1465,
+          2041,
+          3885,
+          1913,
+          0,
+          0,
+          0,
+          0,
+          11,
+          1,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "amount_int64_max",
+      "note": "largest int64",
+      "input": {
+        "payee": "DEMO EMPLOYER LTD SALARY",
+        "amount_minor": 9223372036854775807,
+        "direction": "in",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "demo",
+          "employer",
+          "ltd",
+          "salary"
+        ],
+        "features": [
+          1465,
+          2041,
+          3885,
+          1913,
+          0,
+          0,
+          0,
+          0,
+          11,
+          1,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "amount_negative",
+      "note": "sign is ignored",
+      "input": {
+        "payee": "DEMO REVERSAL",
+        "amount_minor": -250000,
+        "direction": "in",
+        "timestamp_ms": 1773824400000,
+        "timestamp": "2026-03-18T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-18T12:00:00.000+03:00",
+        "tokens": [
+          "demo",
+          "reversal"
+        ],
+        "features": [
+          1465,
+          2127,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          6,
+          1,
+          3,
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "midnight_local",
+      "note": "00:00 local, 1st of month",
+      "input": {
+        "payee": "DEMO APARTMENTS RENT",
+        "amount_minor": 2500000,
+        "direction": "out",
+        "timestamp_ms": 1774990800000,
+        "timestamp": "2026-04-01T00:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-04-01T00:00:00.000+03:00",
+        "tokens": [
+          "demo",
+          "apartments",
+          "rent"
+        ],
+        "features": [
+          1465,
+          2361,
+          1946,
+          0,
+          0,
+          0,
+          0,
+          0,
+          9,
+          0,
+          0,
+          2,
+          0
+        ]
+      }
+    },
+    {
+      "id": "before_midnight_local",
+      "note": "last ms of the month",
+      "input": {
+        "payee": "DEMO APARTMENTS RENT",
+        "amount_minor": 2500000,
+        "direction": "out",
+        "timestamp_ms": 1774990799999,
+        "timestamp": "2026-03-31T23:59:59.999+03:00"
+      },
+      "expected": {
+        "local_time": "2026-03-31T23:59:59.999+03:00",
+        "tokens": [
+          "demo",
+          "apartments",
+          "rent"
+        ],
+        "features": [
+          1465,
+          2361,
+          1946,
+          0,
+          0,
+          0,
+          0,
+          0,
+          9,
+          0,
+          5,
+          1,
+          2
+        ]
+      }
+    },
+    {
+      "id": "midnight_from_utc",
+      "note": "21:00Z is local midnight",
+      "input": {
+        "payee": "DEMO APARTMENTS RENT",
+        "amount_minor": 2500000,
+        "direction": "out",
+        "timestamp_ms": 1774990800000,
+        "timestamp": "2026-03-31T21:00:00Z"
+      },
+      "expected": {
+        "local_time": "2026-04-01T00:00:00.000+03:00",
+        "tokens": [
+          "demo",
+          "apartments",
+          "rent"
+        ],
+        "features": [
+          1465,
+          2361,
+          1946,
+          0,
+          0,
+          0,
+          0,
+          0,
+          9,
+          0,
+          0,
+          2,
+          0
+        ]
+      }
+    },
+    {
+      "id": "utc_crosses_date",
+      "note": "22:30Z Sunday is 01:30 Monday local",
+      "input": {
+        "payee": "DEMO MATATU SACCO",
+        "amount_minor": 15000,
+        "direction": "out",
+        "timestamp_ms": 1767565800000,
+        "timestamp": "2026-01-04T22:30:00Z"
+      },
+      "expected": {
+        "local_time": "2026-01-05T01:30:00.000+03:00",
+        "tokens": [
+          "demo",
+          "matatu",
+          "sacco"
+        ],
+        "features": [
+          1465,
+          2509,
+          4017,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2,
+          0,
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "other_offset",
+      "note": "+05:30 input",
+      "input": {
+        "payee": "DEMO MATATU SACCO",
+        "amount_minor": 15000,
+        "direction": "out",
+        "timestamp_ms": 1781469000000,
+        "timestamp": "2026-06-15T02:00:00+05:30"
+      },
+      "expected": {
+        "local_time": "2026-06-14T23:30:00.000+03:00",
+        "tokens": [
+          "demo",
+          "matatu",
+          "sacco"
+        ],
+        "features": [
+          1465,
+          2509,
+          4017,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2,
+          0,
+          5,
+          6,
+          1
+        ]
+      }
+    },
+    {
+      "id": "hour_bucket_end",
+      "note": "03:59:59.999 local",
+      "input": {
+        "payee": "DEMO PETROL STATION",
+        "amount_minor": 300000,
+        "direction": "out",
+        "timestamp_ms": 1778288399999,
+        "timestamp": "2026-05-09T03:59:59.999+03:00"
+      },
+      "expected": {
+        "local_time": "2026-05-09T03:59:59.999+03:00",
+        "tokens": [
+          "demo",
+          "petrol",
+          "station"
+        ],
+        "features": [
+          1465,
+          265,
+          2613,
+          0,
+          0,
+          0,
+          0,
+          0,
+          6,
+          0,
+          0,
+          5,
+          1
+        ]
+      }
+    },
+    {
+      "id": "hour_bucket_start",
+      "note": "04:00 local",
+      "input": {
+        "payee": "DEMO PETROL STATION",
+        "amount_minor": 300000,
+        "direction": "out",
+        "timestamp_ms": 1778288400000,
+        "timestamp": "2026-05-09T04:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-05-09T04:00:00.000+03:00",
+        "tokens": [
+          "demo",
+          "petrol",
+          "station"
+        ],
+        "features": [
+          1465,
+          265,
+          2613,
+          0,
+          0,
+          0,
+          0,
+          0,
+          6,
+          0,
+          1,
+          5,
+          1
+        ]
+      }
+    },
+    {
+      "id": "last_hour",
+      "note": "23:00 local",
+      "input": {
+        "payee": "SAMPLE LOUNGE BAR",
+        "amount_minor": 150000,
+        "direction": "out",
+        "timestamp_ms": 1778443200000,
+        "timestamp": "2026-05-10T23:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-05-10T23:00:00.000+03:00",
+        "tokens": [
+          "sample",
+          "lounge",
+          "bar"
+        ],
+        "features": [
+          375,
+          1198,
+          2313,
+          0,
+          0,
+          0,
+          0,
+          0,
+          5,
+          0,
+          5,
+          6,
+          1
+        ]
+      }
+    },
+    {
+      "id": "day_5",
+      "note": "5th is month start",
+      "input": {
+        "payee": "DEMO ACADEMY FEES",
+        "amount_minor": 3000000,
+        "direction": "out",
+        "timestamp_ms": 1770325199000,
+        "timestamp": "2026-02-05T23:59:59+03:00"
+      },
+      "expected": {
+        "local_time": "2026-02-05T23:59:59.000+03:00",
+        "tokens": [
+          "demo",
+          "academy",
+          "fees"
+        ],
+        "features": [
+          1465,
+          2068,
+          2140,
+          0,
+          0,
+          0,
+          0,
+          0,
+          9,
+          0,
+          5,
+          3,
+          0
+        ]
+      }
+    },
+    {
+      "id": "day_6",
+      "note": "6th is mid-month",
+      "input": {
+        "payee": "DEMO ACADEMY FEES",
+        "amount_minor": 3000000,
+        "direction": "out",
+        "timestamp_ms": 1770325200000,
+        "timestamp": "2026-02-06T00:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-02-06T00:00:00.000+03:00",
+        "tokens": [
+          "demo",
+          "academy",
+          "fees"
+        ],
+        "features": [
+          1465,
+          2068,
+          2140,
+          0,
+          0,
+          0,
+          0,
+          0,
+          9,
+          0,
+          0,
+          4,
+          1
+        ]
+      }
+    },
+    {
+      "id": "day_24",
+      "note": "24th is mid-month",
+      "input": {
+        "payee": "SAMPLE SACCO DEPOSIT",
+        "amount_minor": 500000,
+        "direction": "out",
+        "timestamp_ms": 1771966799000,
+        "timestamp": "2026-02-24T23:59:59+03:00"
+      },
+      "expected": {
+        "local_time": "2026-02-24T23:59:59.000+03:00",
+        "tokens": [
+          "sample",
+          "sacco",
+          "deposit"
+        ],
+        "features": [
+          375,
+          4017,
+          506,
+          0,
+          0,
+          0,
+          0,
+          0,
+          7,
+          0,
+          5,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "id": "day_25",
+      "note": "25th is month end",
+      "input": {
+        "payee": "SAMPLE COMPANY PAYROLL",
+        "amount_minor": 8500000,
+        "direction": "in",
+        "timestamp_ms": 1771966800000,
+        "timestamp": "2026-02-25T00:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2026-02-25T00:00:00.000+03:00",
+        "tokens": [
+          "sample",
+          "company",
+          "payroll"
+        ],
+        "features": [
+          375,
+          3989,
+          1718,
+          0,
+          0,
+          0,
+          0,
+          0,
+          10,
+          1,
+          0,
+          2,
+          2
+        ]
+      }
+    },
+    {
+      "id": "leap_day",
+      "note": "29 February",
+      "input": {
+        "payee": "DEMO GROCERS",
+        "amount_minor": 120000,
+        "direction": "out",
+        "timestamp_ms": 1835427600000,
+        "timestamp": "2028-02-29T12:00:00+03:00"
+      },
+      "expected": {
+        "local_time": "2028-02-29T12:00:00.000+03:00",
+        "tokens": [
+          "demo",
+          "grocers"
+        ],
+        "features": [
+          1465,
+          3173,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          5,
+          0,
+          3,
+          1,
+          2
+        ]
+      }
+    },
+    {
+      "id": "pre_epoch",
+      "note": "before 1970; floor division",
+      "input": {
+        "payee": "DEMO GROCERS",
+        "amount_minor": 120000,
+        "direction": "out",
+        "timestamp_ms": -10800001,
+        "timestamp": "1969-12-31T20:59:59.999Z"
+      },
+      "expected": {
+        "local_time": "1969-12-31T23:59:59.999+03:00",
+        "tokens": [
+          "demo",
+          "grocers"
+        ],
+        "features": [
+          1465,
+          3173,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          5,
+          0,
+          5,
+          2,
+          2
+        ]
+      }
+    },
+    {
+      "id": "epoch_local_midnight",
+      "note": "1970-01-01 00:00 local",
+      "input": {
+        "payee": "DEMO GROCERS",
+        "amount_minor": 120000,
+        "direction": "out",
+        "timestamp_ms": -10800000,
+        "timestamp": "1969-12-31T21:00:00Z"
+      },
+      "expected": {
+        "local_time": "1970-01-01T00:00:00.000+03:00",
+        "tokens": [
+          "demo",
+          "grocers"
+        ],
+        "features": [
+          1465,
+          3173,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          5,
+          0,
+          0,
+          3,
+          0
+        ]
+      }
+    },
+    {
+      "id": "far_future",
+      "note": "year 2100",
+      "input": {
+        "payee": "DEMO GROCERS",
+        "amount_minor": 120000,
+        "direction": "in",
+        "timestamp_ms": 4133969999000,
+        "timestamp": "2100-12-31T23:59:59+03:00"
+      },
+      "expected": {
+        "local_time": "2100-12-31T23:59:59.000+03:00",
+        "tokens": [
+          "demo",
+          "grocers"
+        ],
+        "features": [
+          1465,
+          3173,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          5,
+          1,
+          5,
+          4,
+          2
+        ]
+      }
+    }
+  ]
+}

@@ -18,6 +18,7 @@ import numpy as np
 
 from akili.categories import CategorySet, default_categories
 from akili.config import SyntheticDataConfig
+from akili.features import NAIROBI
 from akili.types import Direction, Transaction
 
 IdKind = Literal["till", "paybill", "person", "none"]
@@ -228,7 +229,7 @@ PROFILES: dict[str, _Profile] = {
 }
 
 FAKE_MARKERS: tuple[str, ...] = ("DEMO", "SAMPLE", "FAKE", "TEST")
-START_DATE = datetime(2026, 1, 1)
+START_DATE = datetime(2026, 1, 1, tzinfo=NAIROBI)
 
 
 def _payee(profile: _Profile, rng: np.random.Generator) -> str:
@@ -249,7 +250,7 @@ def _timestamp(profile: _Profile, rng: np.random.Generator) -> datetime:
     month = int(rng.integers(0, 3))
     lo, hi = profile.month_days
     day = int(rng.integers(lo, hi + 1))
-    base = datetime(START_DATE.year, START_DATE.month + month, day)
+    base = START_DATE.replace(month=START_DATE.month + month, day=day)
     if profile.weekend_bias and rng.random() < profile.weekend_bias:
         base += timedelta(days=(5 - base.weekday()) % 7 + int(rng.integers(0, 2)))
     hour = int(rng.integers(profile.hours[0], profile.hours[1] + 1))
@@ -272,14 +273,14 @@ def generate(cfg: SyntheticDataConfig, categories: CategorySet | None = None) ->
         for _ in range(cfg.transactions_per_user):
             category = labels[int(rng.choice(len(labels), p=mix))]
             profile = PROFILES[category]
-            amount = float(np.round(profile.median_kes * rng.lognormal(0, profile.sigma)))
+            amount_kes = int(np.round(profile.median_kes * rng.lognormal(0, profile.sigma)))
             label = category
             if rng.random() < cfg.label_noise:
                 label = labels[int(rng.integers(0, len(labels)))]
             out.append(
                 Transaction(
                     payee=_payee(profile, rng),
-                    amount_kes=max(amount, 1.0),
+                    amount_minor=max(amount_kes, 1) * 100,
                     direction=profile.direction,
                     timestamp=_timestamp(profile, rng),
                     category=label,
@@ -302,7 +303,7 @@ def write_jsonl(txs: Iterable[Transaction], path: str | Path) -> None:
                 json.dumps(
                     {
                         "payee": tx.payee,
-                        "amount_kes": tx.amount_kes,
+                        "amount_minor": tx.amount_minor,
                         "direction": tx.direction.value,
                         "timestamp": tx.timestamp.isoformat(),
                         "category": tx.category,
@@ -321,7 +322,7 @@ def read_jsonl(path: str | Path) -> Iterator[Transaction]:
             row = json.loads(line)
             yield Transaction(
                 payee=row["payee"],
-                amount_kes=float(row["amount_kes"]),
+                amount_minor=int(row["amount_minor"]),
                 direction=Direction(row["direction"]),
                 timestamp=datetime.fromisoformat(row["timestamp"]),
                 category=row.get("category"),
