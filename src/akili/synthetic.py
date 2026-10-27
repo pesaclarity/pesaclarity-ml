@@ -87,6 +87,20 @@ PROFILES: dict[str, _Profile] = {
         (12, 21),
         "till",
     ),
+    "snacks": _Profile(
+        (
+            "DEMO SNACK KIOSK",
+            "SAMPLE BAKERY",
+            "FAKE ICE CREAM PARLOUR",
+            "DEMO SWEETS AND SODA",
+        ),
+        _OUT,
+        150,
+        0.6,
+        (10, 22),
+        "till",
+        weekend_bias=0.3,
+    ),
     "transport": _Profile(
         ("DEMO MATATU SACCO", "SAMPLE BODA RIDES", "FAKE TAXI APP", "DEMO BUS SERVICE"),
         _OUT,
@@ -206,12 +220,19 @@ PROFILES: dict[str, _Profile] = {
         (0, 23),
     ),
     "loan_repayment": _Profile(
-        ("DEMO OVERDRAFT REPAYMENT", "SAMPLE MOBILE LOAN", "FAKE BANK LOAN ACC"),
+        ("DEMO MOBILE LENDER", "SAMPLE MOBILE LOAN", "FAKE BANK LOAN ACC"),
         _OUT,
         2_000,
         0.9,
         (7, 22),
         "paybill",
+    ),
+    "fuliza_repayment": _Profile(
+        ("DEMO FULIZA REPAYMENT", "SAMPLE OVERDRAFT REPAID"),
+        _OUT,
+        800,
+        0.9,
+        (0, 23),
     ),
     "savings": _Profile(
         ("DEMO MONEY MARKET FUND", "SAMPLE SACCO DEPOSIT", "FAKE SAVINGS LOCK"),
@@ -242,7 +263,8 @@ _SYLLABLES: tuple[str, ...] = (
 _BUSINESS_WORDS: dict[str, tuple[str, ...]] = {
     "business_income": ("ENTERPRISES", "AGENCIES", "CONSULTANTS", "TRADERS"),
     "groceries": ("GROCERS", "MINIMART", "FRESH PRODUCE", "SUPERSTORE", "DUKA"),
-    "eating_out": ("CAFE", "GRILL", "EATERY", "BAKERY", "HOTEL"),
+    "eating_out": ("CAFE", "GRILL", "EATERY", "HOTEL"),
+    "snacks": ("BAKERY", "KIOSK", "SWEETS", "SNACKS"),
     "transport": ("SACCO", "SHUTTLE", "RIDES", "COURIERS"),
     "fuel": ("SERVICE STATION", "PETROL", "ENERGY"),
     "rent": ("APARTMENTS", "HEIGHTS", "COURT", "PROPERTIES"),
