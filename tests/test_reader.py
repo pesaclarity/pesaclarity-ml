@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from akili._optional import has_module
-from akili.reader import vectors
+from akili.reader import examples, vectors
 from akili.reader.synthetic import (
     FIELD_LABELS,
     LAYOUTS,
@@ -137,3 +137,8 @@ def test_reader_trains_and_exports(tmp_path) -> None:  # type: ignore[no-untyped
     assert (tmp_path / MODEL_FILE).stat().st_size == manifest["model_size_bytes"]
     assert manifest["outputs"]["fields"]["labels"] == FIELD_LABELS
     assert report["model_size_bytes"] < 512_000
+
+
+def test_examples_page_matches_the_generator() -> None:
+    path = examples.default_path()
+    assert path.read_text(encoding="utf-8") == examples.render(), "run `akili reader-examples`"

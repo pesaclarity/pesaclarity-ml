@@ -61,6 +61,7 @@ vectors in [`reader_vectors.v1.json`](src/akili/resources/reader_vectors.v1.json
 ```sh
 uv run akili reader --out artefacts/reader      # train, score unseen layouts, export
 uv run akili reader-vectors                     # regenerate the app's test vectors
+uv run akili reader-examples                    # regenerate docs/READER-EXAMPLES.md
 ```
 
 `reader-report.json` holds each layout's scores when that layout was left out of training: the
@@ -70,6 +71,8 @@ modelled on public M-PESA, Equity and KCB samples (receipt first, "Your transact
 the amount, 0.72 for the payee and 0.99 for the date; payee-first sentences ("JOHN DOE has sent
 you ...") and the bank-to-wallet layouts are the weak spots. Layouts it was trained on score close
 to 1. Real messages will score lower.
+[docs/READER-EXAMPLES.md](docs/READER-EXAMPLES.md) shows sample messages for each layout with their
+fields marked.
 
 ## Configs and tracks
 

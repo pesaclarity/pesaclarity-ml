@@ -1,5 +1,5 @@
-"""Command line: ``akili synth | vectors | reader-vectors | reader | epsilon | gate | train |
-audit | simulate``."""
+"""Command line: ``akili synth | vectors | reader-vectors | reader-examples | reader | epsilon |
+gate | train | audit | simulate``."""
 
 from __future__ import annotations
 
@@ -53,6 +53,23 @@ def _reader_vectors(args: argparse.Namespace) -> int:
         print(f"{path} matches the reader code")
         return 0
     print(f"wrote reader test vectors to {vectors.write_vectors(path)}")
+    return 0
+
+
+def _reader_examples(args: argparse.Namespace) -> int:
+    from akili.reader import examples
+
+    path = Path(args.out) if args.out else examples.default_path()
+    page = examples.render()
+    if args.check:
+        current = path.read_text(encoding="utf-8") if path.exists() else ""
+        if current != page:
+            print(f"{path} is out of date; run `akili reader-examples`", file=sys.stderr)
+            return 1
+        print(f"{path} matches the generator")
+        return 0
+    path.write_text(page, encoding="utf-8")
+    print(f"wrote reader examples to {path}")
     return 0
 
 
@@ -252,6 +269,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--out")
     p.add_argument("--check", action="store_true")
     p.set_defaults(func=_reader_vectors)
+
+    p = sub.add_parser("reader-examples", help="regenerate docs/READER-EXAMPLES.md")
+    p.add_argument("--out")
+    p.add_argument("--check", action="store_true")
+    p.set_defaults(func=_reader_examples)
 
     p = sub.add_parser("reader", help="train and export the message reader [train]")
     p.add_argument("--out", default="artefacts/reader")
