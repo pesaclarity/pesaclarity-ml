@@ -1,6 +1,6 @@
 # pesaclarity-ml (akili)
 
-Akili is the machine learning side of Pesa Clarity, the free, ad-free Android app that turns M-Pesa
+Akili is the machine learning side of Pesa Clarity, the free, ad-free Android app (with an iPhone version in the works) that turns M-Pesa
 and bank SMS into a daily plan. It holds the small transaction categoriser that runs on the phone
 (TensorFlow Lite), a synthetic data generator, centralised and DP-SGD training, the client side of
 federated learning, TFLite export with a size budget, MLflow tracking, and the privacy release gate
