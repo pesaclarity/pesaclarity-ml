@@ -167,6 +167,8 @@ class _Gen:
         text = f"{whole:,}" if grouped else str(whole)
         if style.endswith("c") or style.endswith("z"):
             text += f".{cents:02d}"
+        elif style == "plain1":
+            text += f".{cents % 10}"
         return text
 
     def person(self) -> str:
@@ -208,6 +210,9 @@ class _Gen:
         h, mi = int(self.rng.integers(0, 24)), int(self.rng.integers(0, 60))
         if style == "12h":
             return f"{(h % 12) or 12}:{mi:02d} {'AM' if h < 12 else 'PM'}"
+        if style == "12hs":
+            secs = int(self.rng.integers(60))
+            return f"{(h % 12) or 12:02d}:{mi:02d}:{secs:02d} {'AM' if h < 12 else 'PM'}"
         if style == "secs":
             return f"{h:02d}:{mi:02d}:{int(self.rng.integers(60)):02d}"
         return f"{h:02d}:{mi:02d}"
@@ -223,6 +228,9 @@ LAYOUTS = [
     "noun",  # Payment of KES 500 to EXAMPLE STORES on ...
     "verb-first",  # Paid KES 500 to EXAMPLE STORES on ...
     "key-value",  # Amount: KES 500 Merchant: EXAMPLE STORES Date: ...
+    "wallet",  # QJA1BC2DE3 Confirmed. Ksh500.00 sent to JOHN DOE 0712***345 on 5/8/26 at 7:07 AM.
+    "transaction-of",  # Your transaction of Kshs. 500.0 has been credited to 2547... JOHN DOE.
+    "code-first",  # ABCD1234EFGH5678 KES 500.00 sent from 123****456 to 254****789 - JOHN DOE on
 ]
 """Sentence layouts. Evaluation holds each one out in turn."""
 # (words before the amount, words between amount and party, kind of party)
@@ -461,6 +469,8 @@ def _when(g: _Gen, d: _Draft) -> list[Piece]:
 
 def _transaction(g: _Gen) -> tuple[list[Piece], Kind, str]:
     d = _draft(g)
+    if d.layout in _REAL_LAYOUTS:
+        return _real_layout(g, d.layout)
     opening = _opening(g, d)
     body = _BODIES[d.layout](g, d)
     if d.layout != "key-value":
@@ -472,6 +482,243 @@ def _transaction(g: _Gen) -> tuple[list[Piece], Kind, str]:
             body += when
     pieces = [*opening, *body, (".", Field.OTHER), *_closing(g, d)]
     return pieces, Kind.MONEY_OUT if d.out else Kind.MONEY_IN, d.style
+
+
+# Tails real wallet messages carry: numbers and links that are none of the fields.
+_TAILS = [
+    "Earn interest daily on Example MMF,Dial *000#",
+    "Save frequent paybills for quick payment on the app https://example.com/app",
+    "Separate personal and business funds through Example Biashara on *000#.",
+    "See all your balances now https://example.com/b1c2d",
+    "To view the Full Number, forward this message to 000.",
+]
+
+
+def _receipt(g: _Gen, digits: int = 10) -> str:
+    """Upper-case letters and digits, letters first, as wallet receipts are."""
+    letters = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+    head = [letters[int(i)] for i in g.rng.integers(0, len(letters), 3)]
+    tail = [g.pick([*letters, *"0123456789"]) for _ in range(digits - 3)]
+    return "".join(head + tail)
+
+
+def _wallet_party(g: _Gen) -> str:
+    """A name as wallets print it: two spaces inside, any casing."""
+    name = f"{g.pick(_FIRST)}  {g.pick(_LAST)}"
+    return g.pick([name, name.title(), name.lower()])
+
+
+def _wallet(g: _Gen, out: bool, cur: str, money: str) -> list[Piece]:
+    amount = cur + g.money(money)
+    variant = g.pick(
+        ["send", "paybill", "till", "withdraw", "airtime", "savings"]
+        if out
+        else ["receive", "receive-org", "savings", "deposit"]
+    )
+    date, time = g.date("dmy2"), g.time("12h")
+    when: list[Piece] = [
+        ("on", Field.OTHER),
+        (date, Field.DATE),
+        ("at", Field.OTHER),
+        (time, Field.TIME),
+    ]
+    open_word = g.pick(["Confirmed.", "confirmed."])
+    pieces: list[Piece] = [(_receipt(g), Field.REFERENCE), (open_word, Field.OTHER)]
+    if variant in ("receive", "receive-org") and g.chance(0.15):
+        pieces.insert(0, ("Congratulations!", Field.OTHER))
+    if variant == "send":
+        pieces += [
+            (amount, Field.AMOUNT),
+            ("sent to", Field.OTHER),
+            (_wallet_party(g), Field.COUNTERPARTY),
+        ]
+        if g.chance(0.6):
+            pieces.append((g.pick([g.phone(), "07" + g.digits(8)]), Field.OTHER))
+        pieces += when
+    elif variant == "paybill":
+        pieces += [
+            (amount, Field.AMOUNT),
+            ("sent to", Field.OTHER),
+            (g.merchant(), Field.COUNTERPARTY),
+            ("for account", Field.OTHER),
+            (g.pick([g.digits(10), "ATL" + g.digits(10)]), Field.OTHER),
+            *when,
+        ]
+    elif variant == "till":
+        pieces += [
+            (amount, Field.AMOUNT),
+            ("paid to", Field.OTHER),
+            (g.merchant(), Field.COUNTERPARTY),
+            (".", Field.OTHER),
+            *when,
+        ]
+    elif variant == "withdraw":
+        pieces += [
+            *when,
+            ("Withdraw", Field.OTHER),
+            (amount, Field.AMOUNT),
+            ("from", Field.OTHER),
+            (g.digits(6), Field.OTHER),
+            ("-", Field.OTHER),
+            (g.merchant(), Field.COUNTERPARTY),
+        ]
+    elif variant == "airtime":
+        pieces += [
+            ("You bought", Field.OTHER),
+            (amount, Field.AMOUNT),
+            ("of", Field.OTHER),
+            ("airtime", Field.COUNTERPARTY),
+            *when,
+        ]
+    elif variant == "receive":
+        pieces += [
+            ("You have received", Field.OTHER),
+            (amount, Field.AMOUNT),
+            ("from", Field.OTHER),
+            (_wallet_party(g), Field.COUNTERPARTY),
+            (g.phone(), Field.OTHER),
+            *when,
+        ]
+    elif variant == "receive-org":
+        pieces += [
+            ("You have received", Field.OTHER),
+            (amount, Field.AMOUNT),
+            ("from", Field.OTHER),
+            (g.merchant(), Field.COUNTERPARTY),
+            (g.digits(6), Field.OTHER),
+            *when,
+        ]
+    elif variant == "deposit":
+        pieces += [
+            *when,
+            ("Give", Field.OTHER),
+            (amount, Field.AMOUNT),
+            ("cash to", Field.OTHER),
+            (g.merchant(), Field.COUNTERPARTY),
+        ]
+    else:
+        # Savings moves print two balances; only the wallet's is the balance field.
+        pieces += [
+            (amount, Field.AMOUNT),
+            ("transferred to" if out else "transferred from", Field.OTHER),
+            ("Example Savings", Field.COUNTERPARTY),
+            ("account", Field.OTHER),
+            *when,
+            (".", Field.OTHER),
+        ]
+        balances: list[list[Piece]] = [
+            [("Wallet balance is", Field.OTHER), (cur + g.money("gc", 10, 400_000), Field.BALANCE)],
+            [("Savings balance is", Field.OTHER), (cur + g.money("gc", 10, 400_000), Field.OTHER)],
+        ]
+        for balance in balances if out else balances[::-1]:
+            pieces += [*balance, (".", Field.OTHER)]
+        if out or g.chance(0.5):
+            pieces += [("Transaction cost", Field.OTHER), (cur + "0.00", Field.FEE)]
+        return pieces
+    pieces += [
+        (".", Field.OTHER),
+        ("New balance is", Field.OTHER),
+        (cur + g.money("gc", 10, 400_000), Field.BALANCE),
+        (".", Field.OTHER),
+    ]
+    if out and (variant != "airtime" or g.chance(0.5)):
+        pieces += [
+            ("Transaction cost,", Field.OTHER),
+            (cur + g.money("gc", 0, 300), Field.FEE),
+            (".", Field.OTHER),
+        ]
+    if out and g.chance(0.7):
+        pieces += [
+            ("Amount you can transact within the day is", Field.OTHER),
+            (g.money("gc", 1000, 500_000), Field.OTHER),
+            (".", Field.OTHER),
+        ]
+    return pieces
+
+
+def _transaction_of(g: _Gen, out: bool, cur: str, money: str) -> list[Piece]:
+    """Bank-to-wallet notices whose verb reads as money in although money left."""
+    amount = cur + g.money(money)
+    party = _wallet_party(g)
+    phone = "2547" + g.digits(8)
+    verb = "has been credited to" if out else "has been received from"
+    pieces: list[Piece] = [
+        ("Your transaction of", Field.OTHER),
+        (amount, Field.AMOUNT),
+        (verb, Field.OTHER),
+    ]
+    pieces += (
+        [(phone, Field.OTHER), (party, Field.COUNTERPARTY)]
+        if g.chance(0.5)
+        else [(party, Field.COUNTERPARTY), (phone, Field.OTHER)]
+    )
+    pieces += [
+        (".", Field.OTHER),
+        ("Ref.", Field.OTHER),
+        ("EQA" + _receipt(g, 13), Field.REFERENCE),
+        (".", Field.OTHER),
+    ]
+    if g.chance(0.6):
+        pieces += [("Wallet Ref.", Field.OTHER), (_receipt(g), Field.OTHER)]
+    pieces += [
+        ("on", Field.OTHER),
+        (g.date("dmy4"), Field.DATE),
+        ("at", Field.OTHER),
+        (g.time("secs"), Field.TIME),
+        (".", Field.OTHER),
+    ]
+    return pieces
+
+
+def _code_first(g: _Gen, out: bool, cur: str, money: str) -> list[Piece]:
+    amount = cur + g.money(money)
+    account = f"{g.digits(3)}****{g.digits(3)}"
+    phone = f"254****{g.digits(3)}"
+    party = g.person()
+    pieces: list[Piece] = [(_receipt(g, 16), Field.REFERENCE), (amount, Field.AMOUNT)]
+    if out:
+        pieces += [
+            ("sent from", Field.OTHER),
+            (account, Field.OTHER),
+            ("to", Field.OTHER),
+            (phone, Field.OTHER),
+            ("-", Field.OTHER),
+            (party, Field.COUNTERPARTY),
+        ]
+    else:
+        pieces += [
+            ("received from", Field.OTHER),
+            (party, Field.COUNTERPARTY),
+            ("-", Field.OTHER),
+            (account, Field.OTHER),
+        ]
+    pieces += [
+        ("on", Field.OTHER),
+        (g.date("iso"), Field.DATE),
+        (g.time("12hs"), Field.TIME),
+        (".", Field.OTHER),
+    ]
+    if g.chance(0.6):
+        pieces += [("Wallet REF:", Field.OTHER), (_receipt(g), Field.OTHER)]
+    return pieces
+
+
+_REAL_LAYOUTS: dict[str, Callable[[_Gen, bool, str, str], list[Piece]]] = {
+    "wallet": _wallet,
+    "transaction-of": _transaction_of,
+    "code-first": _code_first,
+}
+
+
+def _real_layout(g: _Gen, layout: str) -> tuple[list[Piece], Kind, str]:
+    out = g.chance(0.6)
+    cur = {"wallet": "Ksh", "transaction-of": "Kshs. ", "code-first": "KES "}[layout]
+    money = {"transaction-of": "plain1"}.get(layout, "gc")
+    pieces = _REAL_LAYOUTS[layout](g, out, cur, money)
+    if layout == "wallet" and g.chance(0.5):
+        pieces.append((g.pick(_TAILS), Field.OTHER))
+    style = f"{layout}/{'out' if out else 'in'}|{cur.strip()}|{money}|-|-|{layout}|none|alnum"
+    return pieces, Kind.MONEY_OUT if out else Kind.MONEY_IN, style
 
 
 def _closing(g: _Gen, d: _Draft) -> list[Piece]:
@@ -501,7 +748,7 @@ def _closing(g: _Gen, d: _Draft) -> list[Piece]:
 
 
 def _not_transaction(g: _Gen) -> tuple[list[Piece], Kind, str]:
-    kind = g.pick(["otp", "promo", "balance", "failed", "limit", "statement"])
+    kind = g.pick(["otp", "promo", "balance", "failed", "limit", "statement", "wallet"])
     institution = g.pick(_INSTITUTIONS)
     cur = g.pick(_CURRENCIES)
     if kind == "otp":
@@ -553,6 +800,26 @@ def _not_transaction(g: _Gen) -> tuple[list[Piece], Kind, str]:
             (cur + g.money("g", 500, 100_000), Field.OTHER),
             (".", Field.OTHER),
         ]
+    elif kind == "wallet":
+        notices: list[list[Piece]] = [
+            [
+                (_receipt(g), Field.OTHER),
+                ("Confirmed . Your savings account balance is", Field.OTHER),
+                ("Ksh" + g.money("gc", 10, 400_000), Field.BALANCE),
+                (".", Field.OTHER),
+            ],
+            [
+                ("Failed. You do not have enough money in your wallet to send", Field.OTHER),
+                ("Ksh" + g.money("gc", 10, 50_000), Field.OTHER),
+                (".", Field.OTHER),
+            ],
+            [
+                ("Your overdraft limit is now", Field.OTHER),
+                ("Ksh " + g.money("gc", 100, 50_000), Field.OTHER),
+                (". Dial *000# to use it.", Field.OTHER),
+            ],
+        ]
+        pieces = notices[int(g.rng.integers(len(notices)))]
     else:
         pieces = [
             (f"{institution}:", Field.OTHER),
