@@ -1,4 +1,5 @@
-"""Command line: ``akili synth | vectors | epsilon | gate | train | audit | simulate``."""
+"""Command line: ``akili synth | vectors | reader-vectors | reader | epsilon | gate | train |
+audit | simulate``."""
 
 from __future__ import annotations
 
@@ -37,6 +38,36 @@ def _vectors(args: argparse.Namespace) -> int:
         print(f"{path} matches the feature code")
         return 0
     print(f"wrote feature test vectors to {write_vectors(path)}")
+    return 0
+
+
+def _reader_vectors(args: argparse.Namespace) -> int:
+    from akili.reader import vectors
+
+    path = Path(args.out) if args.out else vectors.default_path()
+    if args.check:
+        current = path.read_text(encoding="utf-8") if path.exists() else ""
+        if current != vectors.render(vectors.build_vectors()):
+            print(f"{path} is out of date; run `akili reader-vectors`", file=sys.stderr)
+            return 1
+        print(f"{path} matches the reader code")
+        return 0
+    print(f"wrote reader test vectors to {vectors.write_vectors(path)}")
+    return 0
+
+
+def _reader(args: argparse.Namespace) -> int:
+    from akili.reader.train import ReaderConfig, train_reader
+
+    cfg = ReaderConfig(messages=args.messages, epochs=args.epochs, seed=args.seed)
+    report = train_reader(cfg, args.out, evaluate=not args.skip_evaluation)
+    unseen = report["unseen_layouts"]
+    if unseen is not None:
+        print("unseen layouts, mean F1:")
+        for name, f1 in unseen["mean_f1"].items():
+            print(f"  {name:<13} {f1:.3f}")
+        print(f"  kind accuracy {unseen['mean_kind_accuracy']:.3f}")
+    print(f"reader {report['model_size_bytes']} bytes at {Path(args.out) / 'reader.tflite'}")
     return 0
 
 
@@ -214,6 +245,21 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--out", help="output path (default: the committed file in the package)")
     p.add_argument("--check", action="store_true", help="fail if the file is out of date")
     p.set_defaults(func=_vectors)
+
+    p = sub.add_parser(
+        "reader-vectors", help="regenerate the message reader test vectors for the app"
+    )
+    p.add_argument("--out")
+    p.add_argument("--check", action="store_true")
+    p.set_defaults(func=_reader_vectors)
+
+    p = sub.add_parser("reader", help="train and export the message reader [train]")
+    p.add_argument("--out", default="artefacts/reader")
+    p.add_argument("--messages", type=int, default=30_000)
+    p.add_argument("--epochs", type=int, default=8)
+    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--skip-evaluation", action="store_true")
+    p.set_defaults(func=_reader)
 
     p = sub.add_parser("epsilon", help="report the privacy budget a config would spend")
     p.add_argument("--config", required=True)

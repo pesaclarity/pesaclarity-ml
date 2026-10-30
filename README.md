@@ -48,6 +48,26 @@ language-neutral spec, and
 cases the Dart code must pass. Each exported model carries a `model-manifest.json` with the
 feature schema version, so the app can refuse a model it cannot feed.
 
+## The message reader
+
+A second, separate model reads the fields of bank and wallet messages that no parser rule
+matched, for the app's review inbox: amount, payee, date, time, balance, reference, fee, and
+whether it is money out, money in or not a transaction. It tags each token with a small 1-D
+convolutional network (about 200 KB as TFLite) and trains on synthetic messages only, built from
+invented institutions, people and amounts in seven sentence layouts. The person confirms every
+suggestion. [docs/READER.md](docs/READER.md) is the spec the app implements, with conformance
+vectors in [`reader_vectors.v1.json`](src/akili/resources/reader_vectors.v1.json).
+
+```sh
+uv run akili reader --out artefacts/reader      # train, score unseen layouts, export
+uv run akili reader-vectors                     # regenerate the app's test vectors
+```
+
+`reader-report.json` holds each layout's scores when that layout was left out of training: the
+honest measure for wording the app has never seen. On synthetic messages the mean F1 is about
+0.86 for the amount, 0.85 for the payee and 0.99 for the date; a payee-first sentence ("JOHN DOE
+has sent you ...") the model never saw is its weak spot. Real messages will score lower.
+
 ## Configs and tracks
 
 | Config | What it runs |
