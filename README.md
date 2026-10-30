@@ -64,9 +64,12 @@ uv run akili reader-vectors                     # regenerate the app's test vect
 ```
 
 `reader-report.json` holds each layout's scores when that layout was left out of training: the
-honest measure for wording the app has never seen. On synthetic messages the mean F1 is about
-0.86 for the amount, 0.85 for the payee and 0.99 for the date; a payee-first sentence ("JOHN DOE
-has sent you ...") the model never saw is its weak spot. Real messages will score lower.
+honest measure for wording the app has never seen. Training covers ten layouts, three of them
+modelled on public M-PESA, Equity and KCB samples (receipt first, "Your transaction of ...", a
+16-character code first). On synthetic messages in an unseen layout the mean F1 is about 0.85 for
+the amount, 0.72 for the payee and 0.99 for the date; payee-first sentences ("JOHN DOE has sent
+you ...") and the bank-to-wallet layouts are the weak spots. Layouts it was trained on score close
+to 1. Real messages will score lower.
 
 ## Configs and tracks
 
