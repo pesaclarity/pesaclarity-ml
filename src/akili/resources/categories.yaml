@@ -4,12 +4,15 @@
 # type: income | expense | debt | savings | tax | transfer (matches the app's categories table)
 # daily: counts towards the daily safe-to-spend budget
 # target: the categoriser predicts it; false means rules handle it (own transfers) or it is the fallback
-version: 2
+version: 3
 fallback: uncategorised
 categories:
   - {id: salary, name: Salary, type: income, daily: false, target: true}
   - {id: business_income, name: Business and freelance income, type: income, daily: false, target: true}
   - {id: money_received, name: Money received from people, type: income, daily: false, target: true}
+  - {id: support_received, name: Support from family, type: income, daily: false, target: true}
+  - {id: allowance_bursary, name: Allowance and bursary, type: income, daily: false, target: true}
+  - {id: gifts_received, name: Gifts received, type: income, daily: false, target: true}
   - {id: groceries, name: Groceries and household, type: expense, daily: true, target: true}
   - {id: eating_out, name: Eating out, type: expense, daily: true, target: true}
   - {id: snacks, name: Snacks, type: expense, daily: true, target: true}

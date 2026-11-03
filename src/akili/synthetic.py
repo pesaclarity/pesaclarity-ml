@@ -60,6 +60,33 @@ PROFILES: dict[str, _Profile] = {
         "paybill",
     ),
     "money_received": _Profile(("TEST PERSON",), _IN, 2_000, 0.9, (7, 22), "person"),
+    "support_received": _Profile(
+        ("TEST PERSON",),
+        _IN,
+        4_000,
+        0.6,
+        (8, 21),
+        "person",
+        month_days=(1, 7),
+    ),
+    "allowance_bursary": _Profile(
+        ("DEMO UNIVERSITY ALLOWANCE", "SAMPLE COUNTY BURSARY FUND", "FAKE STUDENT STIPEND"),
+        _IN,
+        6_000,
+        0.5,
+        (9, 16),
+        "paybill",
+        month_days=(1, 10),
+    ),
+    "gifts_received": _Profile(
+        ("TEST PERSON",),
+        _IN,
+        1_000,
+        0.9,
+        (10, 22),
+        "person",
+        weekend_bias=0.5,
+    ),
     "groceries": _Profile(
         (
             "DEMO FRESH MART",
@@ -262,6 +289,7 @@ _SYLLABLES: tuple[str, ...] = (
 )  # fmt: skip
 _BUSINESS_WORDS: dict[str, tuple[str, ...]] = {
     "business_income": ("ENTERPRISES", "AGENCIES", "CONSULTANTS", "TRADERS"),
+    "allowance_bursary": ("BURSARY FUND", "STUDENT ALLOWANCE", "SCHOLARSHIP TRUST"),
     "groceries": ("GROCERS", "MINIMART", "FRESH PRODUCE", "SUPERSTORE", "DUKA"),
     "eating_out": ("CAFE", "GRILL", "EATERY", "HOTEL"),
     "snacks": ("BAKERY", "KIOSK", "SWEETS", "SNACKS"),
