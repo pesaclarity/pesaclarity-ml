@@ -139,6 +139,13 @@ uv run ruff format --check . && uv run ruff check . && uv run mypy && uv run pyt
 
 CI runs this on the core install, then again with `--all-extras` plus the smoke training runs.
 
+## Get involved
+
+- **Star [the app](https://github.com/pesaclarity/pesaclarity-app)** so more people find a private money app that runs on their phone.
+- Machine learning and privacy reviewers are welcome, especially a second look at the private training and its audits.
+- **Pick a first issue:** [good first issues](https://github.com/pesaclarity/pesaclarity-ml/issues?q=is%3Aopen+label%3A%22good+first+issue%22) or [help wanted](https://github.com/pesaclarity/pesaclarity-ml/issues?q=is%3Aopen+label%3A%22help+wanted%22).
+- **Read [CONTRIBUTING.md](CONTRIBUTING.md)** before your first pull request. Never include real messages, statements or phone numbers.
+
 ## Licence
 
 Code: [AGPL-3.0](LICENSE). Trained model weights are not covered by the AGPL and will be released
