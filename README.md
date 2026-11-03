@@ -39,7 +39,9 @@ sqlite:///mlruns/mlflow.db` to browse). Both folders are git-ignored.
 Input is one int32 vector per transaction: up to 8 hashed payee tokens plus amount bucket,
 direction, hour bucket, weekday and month phase (start, middle, payday end). Output is a softmax
 over the default Kenyan category set in
-[`src/akili/resources/categories.yaml`](src/akili/resources/categories.yaml). About 70k
+[`src/akili/resources/categories.yaml`](src/akili/resources/categories.yaml) (version 3: income
+splits into salary, business and freelance, money received, support from family, allowance and
+bursary, and gifts; the app's default categories mirror it). About 70k
 parameters; the quantised TFLite file is about 80 KB, against a 512 KB budget in the configs.
 The app must reproduce [`features.py`](src/akili/features.py) exactly in Dart; it uses FNV-1a
 hashing so no payee vocabulary ships with the model. [docs/FEATURES.md](docs/FEATURES.md) is the
