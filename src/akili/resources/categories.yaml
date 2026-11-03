@@ -28,7 +28,7 @@ categories:
   - {id: lifestyle, name: Lifestyle and entertainment, type: expense, daily: true, target: true}
   - {id: betting, name: Betting and gaming, type: expense, daily: true, target: true}
   - {id: shopping, name: Shopping and clothing, type: expense, daily: false, target: true}
-  - {id: giving, name: Church, giving and harambee, type: expense, daily: false, target: true}
+  - {id: giving, name: Church, giving and fundraisers, type: expense, daily: false, target: true}
   - {id: fees_charges, name: Fees and charges, type: expense, daily: false, target: true}
   - {id: loan_repayment, name: Loan repayment, type: debt, daily: false, target: true}
   - {id: fuliza_repayment, name: Fuliza repayment, type: debt, daily: false, target: true}
