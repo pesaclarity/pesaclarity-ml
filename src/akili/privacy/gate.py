@@ -56,6 +56,13 @@ def evaluate_release(evidence: ReleaseEvidence, policy: TrackPolicy | None = Non
             failures.append(
                 f"delta {evidence.privacy.delta:.3g} exceeds the track limit {p.max_delta:.3g}"
             )
+        # A delta of 1/n or more permits mechanisms that publish an individual's record
+        # outright, so the fixed track limit alone is not enough once the population is large.
+        if evidence.privacy.delta * evidence.privacy.population >= 1:
+            failures.append(
+                f"delta {evidence.privacy.delta:.3g} is not below 1/population "
+                f"(1/{evidence.privacy.population})"
+            )
 
     if not evidence.secure_aggregation:
         failures.append("updates were not combined with secure aggregation")

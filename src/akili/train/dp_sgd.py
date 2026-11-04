@@ -21,6 +21,9 @@ from akili.config import DPConfig, TrainingConfig
 @dataclass(frozen=True)
 class DPTrainingStats:
     steps: int
+    """Steps actually taken, counted in the loop; the accountant must be given the same."""
+    sampling_rate: float
+    """Poisson sampling rate actually used; the accountant must be given the same."""
     mean_batch_size: float
     final_loss: float
 
@@ -100,5 +103,8 @@ def train_dp_sgd(
             continue
         last_loss = float(step(x[idx], y[idx]))
     return DPTrainingStats(
-        steps=total_steps, mean_batch_size=float(np.mean(sizes)), final_loss=last_loss
+        steps=len(sizes),
+        sampling_rate=q,
+        mean_batch_size=float(np.mean(sizes)),
+        final_loss=last_loss,
     )

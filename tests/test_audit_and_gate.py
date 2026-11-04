@@ -89,6 +89,11 @@ def test_gate_checks_every_attack_in_a_report() -> None:
         ({"privacy": None}, "no DP-SGD privacy report"),
         ({"privacy": PRIVACY.model_copy(update={"epsilon": 9.0})}, "epsilon 9"),
         ({"privacy": PRIVACY.model_copy(update={"delta": 1e-5})}, "delta"),
+        # Within the commercial limit of 1e-7, but not below 1/population.
+        (
+            {"privacy": PRIVACY.model_copy(update={"delta": 1e-7, "population": 20_000_000})},
+            "not below 1/population",
+        ),
         ({"secure_aggregation": False}, "secure aggregation"),
         ({"cohort_size": 999}, "below the minimum 1000"),
         ({"audit": None}, "no membership-inference audit"),
