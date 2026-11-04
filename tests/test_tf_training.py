@@ -1,5 +1,6 @@
 """Model, DP-SGD, TFLite export and tracking. Skipped unless the [train] extra is installed."""
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -195,7 +196,12 @@ def test_pipeline_tracks_dp_run(tmp_path: Path) -> None:
     assert result.privacy is not None
     assert (result.run_dir / "privacy-report.json").exists()
     assert (result.run_dir / "labels.json").exists()
-    assert (result.run_dir / "model-manifest.json").exists()
+    manifest = json.loads((result.run_dir / "model-manifest.json").read_text())
+    trainable = manifest["trainable"]
+    assert (result.run_dir / trainable["file"]).exists()
+    assert trainable["signatures"] == ["train", "infer", "save", "restore"]
+    assert trainable["fine_tune"] == cfg.export.fine_tune.model_dump()
     run = mlflow.get_run(result.run_id)
+    assert run.data.metrics["model.trainable_size_bytes"] == trainable["size_bytes"]
     assert run.data.metrics["privacy.epsilon"] == pytest.approx(result.privacy.epsilon)
     assert run.data.tags["track"] == "app"

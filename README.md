@@ -29,7 +29,8 @@ uv run akili simulate --config configs/federated-smoke.yaml
 uv run akili audit --quick --config configs/audit-no-dp.yaml --config configs/audit-dp-sgd.yaml
 ```
 
-Runs write the TFLite model, `model-manifest.json`, `labels.json`, `privacy-report.json` and,
+Runs write the TFLite model, the trainable copy for fine-tuning on the phone
+(`categoriser-train.tflite`), `model-manifest.json`, `labels.json`, `privacy-report.json` and,
 when audited, `audit-report.json` to `artefacts/<name>/`, and
 log to a local MLflow store in `mlruns/` (`uv run mlflow ui --backend-store-uri
 sqlite:///mlruns/mlflow.db` to browse). Both folders are git-ignored.

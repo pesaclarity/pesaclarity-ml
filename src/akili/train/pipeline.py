@@ -14,7 +14,7 @@ import numpy.typing as npt
 from akili._optional import require
 from akili.categories import default_categories
 from akili.config import ExperimentConfig
-from akili.export.manifest import write_model_manifest
+from akili.export.manifest import TrainableManifest, write_model_manifest
 from akili.export.size import ExportedModel
 from akili.export.tflite import export_tflite
 from akili.features import encode_batch
@@ -137,7 +137,20 @@ def run_centralised(
         exported = export_tflite(model, run_dir / "categoriser.tflite", cfg.export)
         tracker.log_metrics({"model.size_bytes": float(exported.size_bytes)})
         tracker.log_artifact(exported.path)
-        tracker.log_artifact(write_model_manifest(exported, cfg.features))
+        trainable: TrainableManifest | None = None
+        if cfg.export.trainable:
+            from akili.export.trainable import TRAINABLE_NAME, export_trainable, weight_shapes
+
+            trainable = TrainableManifest(
+                exported=export_trainable(model, run_dir / TRAINABLE_NAME, cfg.export),
+                weight_shapes=weight_shapes(model),
+                fine_tune=cfg.export.fine_tune,
+            )
+            tracker.log_metrics(
+                {"model.trainable_size_bytes": float(trainable.exported.size_bytes)}
+            )
+            tracker.log_artifact(trainable.exported.path)
+        tracker.log_artifact(write_model_manifest(exported, cfg.features, trainable))
 
         labels_path = run_dir / "labels.json"
         labels_path.write_text(
