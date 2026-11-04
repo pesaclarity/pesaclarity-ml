@@ -44,6 +44,7 @@ class FitOutput:
     losses: list[float]
     """Per-epoch training loss without DP; the final loss only with DP-SGD."""
     dp_steps: int | None
+    dp_sampling_rate: float | None = None
 
 
 def split_indices(n: int, cfg: ExperimentConfig) -> tuple[npt.NDArray[np.int64], ...]:
@@ -65,7 +66,12 @@ def fit_categoriser(
     model = build_categoriser(cfg.features, cfg.model, n_classes, seed=seed)
     if cfg.dp.enabled:
         stats = train_dp_sgd(model, x, y, cfg.training, cfg.dp, seed=seed)
-        return FitOutput(model=model, losses=[stats.final_loss], dp_steps=stats.steps)
+        return FitOutput(
+            model=model,
+            losses=[stats.final_loss],
+            dp_steps=stats.steps,
+            dp_sampling_rate=stats.sampling_rate,
+        )
     model.compile(
         optimizer=keras.optimizers.Adam(cfg.training.learning_rate),
         loss="sparse_categorical_crossentropy",
@@ -113,6 +119,8 @@ def run_centralised(
             )
             if fit.dp_steps != privacy.steps:
                 raise RuntimeError("DP-SGD steps do not match the privacy accounting")
+            if fit.dp_sampling_rate != privacy.sampling_rate:
+                raise RuntimeError("DP-SGD sampling rate does not match the privacy accounting")
             tracker.log_metrics({"train.final_loss": fit.losses[-1]})
             tracker.log_privacy(privacy)
             (run_dir / "privacy-report.json").write_text(
