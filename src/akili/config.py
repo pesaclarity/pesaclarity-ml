@@ -79,6 +79,7 @@ class FineTuneConfig(_Strict):
     """Most recent confirmations used per run, which bounds the time spent on the phone."""
     min_examples: int = Field(default=10, ge=1)
     """Fewer confirmations than this and the run waits, so a handful cannot skew the model."""
+    min_hours_between_runs: int = Field(default=24, ge=1)
 
 
 class ExportConfig(_Strict):

@@ -200,7 +200,7 @@ Every training run writes `model-manifest.json` next to `categoriser.tflite`:
     "size_bytes": 300564,
     "signatures": ["train", "infer", "save", "restore"],
     "weights": {"w1": [36, 32], "b1": [32], "w2": [32, 27], "b2": [27]},
-    "fine_tune": {"learning_rate": 0.05, "epochs": 3, "batch_size": 16, "max_examples": 500, "min_examples": 10}
+    "fine_tune": {"learning_rate": 0.05, "epochs": 3, "batch_size": 16, "max_examples": 500, "min_examples": 10, "min_hours_between_runs": 24}
   }
 }
 ```
@@ -220,7 +220,8 @@ only (no Flex delegate):
 The token and context embeddings stay frozen; `train` updates the two dense layers with plain SGD
 using hand-written gradients, which match TensorFlow's to 1e-5 (`tests/test_tf_trainable.py`). The
 app runs `fine_tune.epochs` passes of `fine_tune.batch_size` over the person's latest
-`fine_tune.max_examples` confirmations, waits until there are `fine_tune.min_examples`, keeps the
+`fine_tune.max_examples` confirmations, waits until there are `fine_tune.min_examples`, runs at
+most once per `fine_tune.min_hours_between_runs` and only while charging, keeps the
 result of `save` in its encrypted storage, and calls `restore` after loading. Nothing leaves the
 phone. The `trainable` block is absent when `export.trainable` is off.
 
