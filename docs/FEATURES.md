@@ -193,9 +193,36 @@ Every training run writes `model-manifest.json` next to `categoriser.tflite`:
   "feature_schema_version": 1,
   "feature_config": {"max_tokens": 8, "hash_buckets": 4096},
   "input": {"name": "features", "dtype": "int32", "shape": [-1, 13]},
-  "layout": ["token_0", "...", "token_7", "amount_bucket", "direction", "hour_bucket", "weekday", "month_phase"]
+  "layout": ["token_0", "...", "token_7", "amount_bucket", "direction", "hour_bucket", "weekday", "month_phase"],
+  "trainable": {
+    "file": "categoriser-train.tflite",
+    "sha256": "<hex>",
+    "size_bytes": 300564,
+    "signatures": ["train", "infer", "save", "restore"],
+    "weights": {"w1": [36, 32], "b1": [32], "w2": [32, 27], "b2": [27]},
+    "fine_tune": {"learning_rate": 0.05, "epochs": 3, "batch_size": 16, "max_examples": 500, "min_examples": 10}
+  }
 }
 ```
+
+### Fine-tuning on the phone
+
+`categoriser-train.tflite` is the same model with four signatures, built from TFLite builtin ops
+only (no Flex delegate):
+
+| Signature | Inputs | Outputs |
+| --- | --- | --- |
+| `train` | `x` int32 `[n, width]`, `y` int32 `[n]` label indices, `lr` float32 | `loss` |
+| `infer` | `x` int32 `[n, width]` | `output` float32 `[n, classes]` |
+| `save` | none | `w1`, `b1`, `w2`, `b2` |
+| `restore` | `w1`, `b1`, `w2`, `b2` | `ok` |
+
+The token and context embeddings stay frozen; `train` updates the two dense layers with plain SGD
+using hand-written gradients, which match TensorFlow's to 1e-5 (`tests/test_tf_trainable.py`). The
+app runs `fine_tune.epochs` passes of `fine_tune.batch_size` over the person's latest
+`fine_tune.max_examples` confirmations, waits until there are `fine_tune.min_examples`, keeps the
+result of `save` in its encrypted storage, and calls `restore` after loading. Nothing leaves the
+phone. The `trainable` block is absent when `export.trainable` is off.
 
 The app must refuse a model when `feature_schema_version` is not one it implements, when
 `feature_config` or `input` differ from what its implementation produces, or when the SHA-256 of

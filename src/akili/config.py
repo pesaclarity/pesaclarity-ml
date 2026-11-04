@@ -68,9 +68,31 @@ class FederatedConfig(_Strict):
     min_cohort_size: int | None = Field(default=None, ge=1)
 
 
+class FineTuneConfig(_Strict):
+    """On-phone fine-tuning on the person's own confirmations. Written to the model manifest, so
+    the app reads these values instead of keeping its own."""
+
+    learning_rate: float = Field(default=0.05, gt=0)
+    epochs: int = Field(default=3, ge=1)
+    batch_size: int = Field(default=16, ge=1)
+    max_examples: int = Field(default=500, ge=1)
+    """Most recent confirmations used per run, which bounds the time spent on the phone."""
+    min_examples: int = Field(default=10, ge=1)
+    """Fewer confirmations than this and the run waits, so a handful cannot skew the model."""
+
+
 class ExportConfig(_Strict):
     max_size_bytes: int = Field(default=1_000_000, ge=1)
     quantize: bool = True
+    trainable: bool = True
+    """Also export ``categoriser-train.tflite`` with train, infer, save and restore signatures."""
+    fine_tune: FineTuneConfig = FineTuneConfig()
+
+    @model_validator(mode="after")
+    def _examples_in_order(self) -> Self:
+        if self.fine_tune.min_examples > self.fine_tune.max_examples:
+            raise ValueError("fine_tune.min_examples is above fine_tune.max_examples")
+        return self
 
 
 class AuditConfig(_Strict):

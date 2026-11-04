@@ -16,6 +16,7 @@ Copy this list into the release issue and fill it in.
 - Feature schema version (`model-manifest.json`):
 - MLflow run id:
 - TFLite SHA-256:
+- Trainable TFLite SHA-256 (`categoriser-train.tflite`):
 
 ## Privacy (checked by the gate)
 
