@@ -53,8 +53,10 @@ Copy this list into the release issue and fill it in.
 - [ ] TFLite output matches the Keras model on a synthetic sample.
 - [ ] Model file signed (Ed25519) with the release key held outside this repository; the app
       verifies the signature before use.
-- [ ] Weights published under the model licence (see [MODEL-WEIGHTS.md](../MODEL-WEIGHTS.md)),
-      never committed here.
+- [ ] App track: weights published under CC BY-SA 4.0 with the credit line, privacy report and
+      audit report. Commercial track: weights given only to a licensee under a signed agreement
+      on the [commercial terms](../COMMERCIAL-MODEL-TERMS.md). Never committed here (see
+      [MODEL-WEIGHTS.md](../MODEL-WEIGHTS.md)).
 
 ## Evidence file
 
