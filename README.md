@@ -120,9 +120,10 @@ and, for the commercial track, legal review. See
 
 `akili audit` trains the model, then attacks it with a loss-threshold attack and LiRA (online
 and offline, with shadow models trained the same way) and reports attack AUC, advantage and the
-true-positive rate at 0.1% and 1% false positives. The audit limits are **provisional** until
-[#3](https://github.com/pesaclarity/pesaclarity-ml/issues/3) reviews them. How to run it and read
-the numbers: [docs/PRIVACY-AUDIT.md](docs/PRIVACY-AUDIT.md).
+true-positive rate at 0.1% and 1% false positives, against limits signed off in
+[#3](https://github.com/pesaclarity/pesaclarity-ml/issues/3). How to run it and read the
+numbers: [docs/PRIVACY-AUDIT.md](docs/PRIVACY-AUDIT.md). Each privacy report also gives the
+tighter PLD accountant's epsilon (`epsilon_pld`) next to the RDP one the gate checks.
 
 ## Project layout
 

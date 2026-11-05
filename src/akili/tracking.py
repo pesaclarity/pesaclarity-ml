@@ -61,9 +61,10 @@ class Tracker:
     def log_privacy(self, report: PrivacyReport) -> None:
         """Log the budget as metrics and the full report as an artefact."""
         if self._mlflow is not None:
-            self._mlflow.log_metrics(
-                {"privacy.epsilon": report.epsilon, "privacy.delta": report.delta}
-            )
+            metrics = {"privacy.epsilon": report.epsilon, "privacy.delta": report.delta}
+            if report.epsilon_pld is not None:
+                metrics["privacy.epsilon_pld"] = report.epsilon_pld
+            self._mlflow.log_metrics(metrics)
             self._mlflow.log_dict(report.model_dump(mode="json"), "privacy-report.json")
 
     def log_audit(self, report: AuditReport) -> None:
