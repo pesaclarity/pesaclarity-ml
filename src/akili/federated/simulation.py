@@ -101,6 +101,8 @@ def simulate(
         rounds=fed.rounds,
         noise_multiplier=fed.update_noise_multiplier,
         clip_norm=fed.update_clip_norm,
+        # Simulated clients draw from seeded generators; real ones use OS entropy.
+        noise_seeded=True,
         delta=cfg.dp.target_delta,
     )
     return result

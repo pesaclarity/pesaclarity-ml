@@ -6,8 +6,9 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from akili.privacy.accounting import PrivacyReport
+from akili.privacy.accounting import PrivacyReport, PrivacyUnit
 from akili.privacy.audit import AuditLimits, AuditResult, audit_failures, provisional_note
+from akili.privacy.ledger import BudgetTotal
 from akili.tracks import Track, TrackPolicy, policy_for
 
 
@@ -19,6 +20,9 @@ class ReleaseEvidence(BaseModel):
     model_name: str
     track: Track
     privacy: PrivacyReport | None = None
+    budget: BudgetTotal | None = None
+    """The dataset's total across every recorded run (``privacy-budget.json``), which must
+    include the release run itself."""
     audit: AuditResult | tuple[AuditResult, ...] | None = None
     """One attack's result, or every attack's (``results`` of ``audit-report.json``); the gate
     checks each against the track limits, so the strongest attack decides."""
@@ -48,21 +52,7 @@ def evaluate_release(evidence: ReleaseEvidence, policy: TrackPolicy | None = Non
     if evidence.privacy is None:
         failures.append("no DP-SGD privacy report: train with DP enabled")
     else:
-        if evidence.privacy.epsilon > p.max_epsilon:
-            failures.append(
-                f"epsilon {evidence.privacy.epsilon:.3g} exceeds the track limit {p.max_epsilon}"
-            )
-        if evidence.privacy.delta > p.max_delta:
-            failures.append(
-                f"delta {evidence.privacy.delta:.3g} exceeds the track limit {p.max_delta:.3g}"
-            )
-        # A delta of 1/n or more permits mechanisms that publish an individual's record
-        # outright, so the fixed track limit alone is not enough once the population is large.
-        if evidence.privacy.delta * evidence.privacy.population >= 1:
-            failures.append(
-                f"delta {evidence.privacy.delta:.3g} is not below 1/population "
-                f"(1/{evidence.privacy.population})"
-            )
+        failures.extend(_privacy_failures(evidence.privacy, evidence.budget, p))
 
     if not evidence.secure_aggregation:
         failures.append("updates were not combined with secure aggregation")
@@ -99,6 +89,49 @@ def evaluate_release(evidence: ReleaseEvidence, policy: TrackPolicy | None = Non
         failures=tuple(failures),
         notes=provisional_note(limits),
     )
+
+
+def _budget_failures(epsilon: float, delta: float, population: int, p: TrackPolicy) -> list[str]:
+    out: list[str] = []
+    if epsilon > p.max_epsilon:
+        out.append(f"epsilon {epsilon:.3g} exceeds the track limit {p.max_epsilon}")
+    if delta > p.max_delta:
+        out.append(f"delta {delta:.3g} exceeds the track limit {p.max_delta:.3g}")
+    # A delta of 1/n or more permits mechanisms that publish an individual's record outright,
+    # so the fixed track limit alone is not enough once the population is large.
+    if delta * population >= 1:
+        out.append(f"delta {delta:.3g} is not below 1/population (1/{population})")
+    return out
+
+
+def _privacy_failures(
+    report: PrivacyReport, budget: BudgetTotal | None, p: TrackPolicy
+) -> list[str]:
+    out = _budget_failures(report.epsilon, report.delta, report.population, p)
+    if report.unit is not PrivacyUnit.USER:
+        out.append(
+            f"the budget is per {report.unit.value}, not per person: someone with many "
+            "transactions is far less protected; train with dp.unit user or DP-FedAvg"
+        )
+    if report.noise_seeded:
+        out.append(
+            "the DP noise came from a fixed seed, so anyone with the seed could remove it: "
+            "retrain without dp.noise_seed"
+        )
+    if budget is None:
+        out.append("no privacy budget total for the dataset: attach privacy-budget.json")
+        return out
+    if budget.unit is not report.unit:
+        out.append(
+            f"the budget total is per {budget.unit.value}, the model per {report.unit.value}"
+        )
+    if budget.epsilon < report.epsilon:
+        out.append("the budget total is below the model's own epsilon, so it misses this run")
+    out.extend(
+        f"dataset total ({budget.runs} runs): {f}"
+        for f in _budget_failures(budget.epsilon, budget.delta, budget.population, p)
+    )
+    return out
 
 
 def load_evidence(path: str | Path) -> ReleaseEvidence:

@@ -48,6 +48,12 @@ before any real data is used:
 * **Some uses of the data are outside the budget**: the audit's shadow models, the logged training
   loss and validation accuracy, repeated runs, and any tuning on private data.
 
+**Update, 2026-11-05:** all three are fixed. Training is now per person by default (#23): each
+step samples people, and each sampled person's examples give one clipped gradient. Noise and
+sampling come from OS entropy unless a synthetic run sets `dp.noise_seed`, and the gate refuses
+any seeded report (#24). A ledger composes every DP run on the same data, audit shadow models
+included, and the gate checks that total (#25). The rows below say what changed.
+
 No maintained library is a drop-in replacement yet. tensorflow-privacy has not released since
 February 2024 and does not support Python 3.12. jax-privacy 2.0.0 (April 2026) has a Keras 3 API,
 but only with the JAX backend. Opacus 1.6.0 (May 2026) is mature, but it is for PyTorch.
@@ -131,10 +137,10 @@ decision or larger work).
 | Class weights | Passed | None. |
 | Validation split and early stopping | Passed | `split_indices` holds the validation set out (`pipeline.py:50`). There is no early stopping or checkpoint selection. |
 | Validation accuracy and training loss | Open (low) | `val.accuracy` (`pipeline.py:135`) is a non-private number about held-out records. `train.final_loss` (`pipeline.py:124`, from `dp_sgd.py:84`) is a non-private loss on the last sampled training batch. Both go to MLflow. On real data, keep them internal or compute them with DP. |
-| Noise and sampling seed | **Open (high, before real data)** | `dp_sgd.py:93-94` seed both the noise and the batch choice from `cfg.seed`. That is 42 in every config, and it is logged to MLflow (`pipeline.py:107`). Anyone who knows the seed and the code can regenerate every noise draw, so the DP guarantee no longer holds. The `dp-sgd` and `audit-dp-sgd` configs even share the same noise. The federated client already notes that real clients must use OS entropy (`federated/client.py:70`). Suggested fix: keep the seed for model initialisation, but draw DP noise and sampling from OS entropy (`secrets` / `np.random.SeedSequence()`) unless the config explicitly asks for a reproducible synthetic run. Not done here, because it changes how reproducible audits and CI are. |
-| Privacy unit | **Open (high, owner decision)** | The budget is per transaction (`PrivacyUnit.EXAMPLE`, `accounting.py:95`). Users have many transactions (60 in the synthetic configs). By group privacy, a user with k transactions is only protected at about k × ε. For ε = 1.83, that is about 37 for k = 20 and about 110 for k = 60, which is effectively nothing. The gate compares example-level and user-level ε against the same `max_epsilon` (`gate.py:51-54`). Recommendation: release only user-level budgets, either from DP-FedAvg or from DP-SGD with per-user clipping. Or make the gate refuse `unit: example` reports. |
-| Audit shadow models | Open (medium) | `privacy/mia.py:122-133` trains 16 more models on the same records, validation records included, and publishes the attack metrics. None of this is in ε. That is fine on synthetic data. On real data, run the audit on a separate proxy dataset, or count it. |
-| Repeated runs and tuning | Open (medium) | Each run on the same data spends budget again. There is no ledger, and the reported ε covers one run only. Tuning learning rate, clip or σ on private data also leaks (Papernot & Steinke 2022). Tune on synthetic or public data only, and keep a per-dataset log of every DP run and its ε. |
+| Noise and sampling seed | **Fixed (#24)** | Now: noise and sampling are seeded from `secrets.randbits(63)` unless the config sets `dp.noise_seed`, which only the synthetic audit config does. The drawn seed is never returned or logged, the report carries `noise_seeded`, and the gate refuses `noise_seeded: true` (a report without the field counts as seeded). Was: | `dp_sgd.py:93-94` seed both the noise and the batch choice from `cfg.seed`. That is 42 in every config, and it is logged to MLflow (`pipeline.py:107`). Anyone who knows the seed and the code can regenerate every noise draw, so the DP guarantee no longer holds. The `dp-sgd` and `audit-dp-sgd` configs even share the same noise. The federated client already notes that real clients must use OS entropy (`federated/client.py:70`). Suggested fix: keep the seed for model initialisation, but draw DP noise and sampling from OS entropy (`secrets` / `np.random.SeedSequence()`) unless the config explicitly asks for a reproducible synthetic run. Not done here, because it changes how reproducible audits and CI are. |
+| Privacy unit | **Fixed (#23)** | Now: `dp.unit` defaults to `user`. Each step Poisson-samples people (q = `users_per_step` / people), each person's mean gradient over at most `max_examples_per_user` examples is clipped to C, and the accountant counts people. Validation holds out whole people. The gate refuses any report that is not user-level. Was: | The budget is per transaction (`PrivacyUnit.EXAMPLE`, `accounting.py:95`). Users have many transactions (60 in the synthetic configs). By group privacy, a user with k transactions is only protected at about k × ε. For ε = 1.83, that is about 37 for k = 20 and about 110 for k = 60, which is effectively nothing. The gate compares example-level and user-level ε against the same `max_epsilon` (`gate.py:51-54`). Recommendation: release only user-level budgets, either from DP-FedAvg or from DP-SGD with per-user clipping. Or make the gate refuse `unit: example` reports. |
+| Audit shadow models | **Fixed (#25)** | Now: each DP shadow model is recorded in the ledger as an audit run on the same data, so the data's total includes them. On real data, audit a stand-in dataset instead. Was: | `privacy/mia.py:122-133` trains 16 more models on the same records, validation records included, and publishes the attack metrics. None of this is in ε. That is fine on synthetic data. On real data, run the audit on a separate proxy dataset, or count it. |
+| Repeated runs and tuning | **Fixed (#25)** | Now: every DP run is appended to `privacy-ledger.jsonl` under its dataset, and `privacy-budget.json` composes them all with the RDP accountant at the smallest delta used. The gate fails when that total is over the limit or misses the release run. Tuning runs are training runs, so they count too. Was: | Each run on the same data spends budget again. There is no ledger, and the reported ε covers one run only. Tuning learning rate, clip or σ on private data also leaks (Papernot & Steinke 2022). Tune on synthetic or public data only, and keep a per-dataset log of every DP run and its ε. |
 | Gate requirements for centralised models | Open (note) | The gate always requires secure aggregation and a minimum cohort (`gate.py:67-72`). A centralised DP-SGD model can only pass if its evidence claims these, which would not be true. Decide whether centralised models may be released at all. If not, say so in the gate. |
 
 ### 6. Numerical issues: Passed, one note Open
@@ -145,7 +151,8 @@ decision or larger work).
 * Float32 noise: TensorFlow draws noise as float32 from a fast pseudo-random generator (Philox).
   It is not a cryptographically secure generator. Floating-point and timing attacks on
   DP noise have been shown (Mironov 2012; Jin et al. 2022). The practical risk is low here, but
-  Opacus offers a `secure_mode` for this reason. Open, low. Revisit together with the seed fix.
+  Opacus offers a `secure_mode` for this reason. Open, low. The seed fix (#24) seeds the
+  generator from OS entropy, but the draws still come from Philox, not a secure generator.
 
 ## Maintained DP-SGD libraries
 
@@ -179,13 +186,13 @@ with "worst of three attacks" approximated by three independent draws):
 | 2,000 | 0.519 | 0.049 | 0.0050 | 0.018 |
 | 5,000 | 0.513 | 0.030 | 0.0030 | 0.015 |
 
-Reference points from `docs/PRIVACY-AUDIT.md`: the no-DP baseline reached AUC 0.575, advantage
+Reference points from the 2026-11-04 run in `docs/PRIVACY-AUDIT.md`: the no-DP baseline reached AUC 0.575, advantage
 0.122 and TPR@0.1% 2.15%. Under the current app limits, its AUC (0.575) and TPR@1% (3.75%) would
 both pass. Only the advantage and TPR@0.1% limits catch it.
 
 | Setting | App now | App recommended | Commercial now | Commercial recommended | Why |
 | --- | --- | --- | --- | --- | --- |
-| Privacy unit | example | **user** | example or user | **user** | The person is what we promise to protect. Example-level ε says little about a user with many transactions (see check 5). |
+| Privacy unit | user (now enforced) | **user** | user (now enforced) | **user** | The person is what we promise to protect. Example-level ε says little about a user with many transactions (see check 5). |
 | max ε | 8 | 8 hard limit, aim for ≤ 3 | 3 | 3 hard limit, aim for ≤ 1 | 8 at user level is common in production federated systems, but it gives almost no bound on attacks: TPR ≤ e^ε × FPR + δ is vacuous at ε = 8. Licensed models deserve a meaningful bound: at ε = 1, TPR@1% ≤ 2.7%. |
 | max δ | 1e-6 | 1e-6 **and** < 1/N (now enforced); aim for ≤ 1/(10N) | 1e-7 | 1e-7 **and** < 1/N; aim for ≤ 1/(10N) | δ ≥ 1/N allows mechanisms that leak a whole record. `default_delta()` already uses 1/(10N). |
 | max attack AUC | 0.60 | **0.55** | 0.55 | **0.53** | 0.60 does not separate the no-DP baseline (0.575) from a private model. Both new values are well above the null p95 (0.519 at 2,000 per side). |
@@ -198,7 +205,7 @@ both pass. Only the advantage and TPR@0.1% limits catch it.
 Two conditions apply to all of these:
 
 * The thresholds only mean what they say once the seed issue and the audit-data issue in
-  check 5 are fixed.
+  check 5 are fixed. Both were fixed on 2026-11-05 (#24, #25).
 * Report ε from the PLD accountant alongside RDP. PLD is tighter, and for the current config it
   gives 1.52 rather than 1.83.
 

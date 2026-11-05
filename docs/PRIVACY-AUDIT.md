@@ -18,14 +18,16 @@ DP-SGD bounds this in theory; the audit measures it in practice, against the act
 ## How it works
 
 1. **Candidates.** Up to `audit.max_candidates` (default 2,000) held-out validation examples, the
-   non-members, and as many random training examples, the members.
+   non-members, and as many random training examples, the members. Validation holds out whole
+   people, so a non-member's transactions were never trained on at all.
 2. **Target scores.** The exported TFLite file, the one that would ship, gives each candidate the
    probability of its true category. (`audit.score_exported: false` uses the Keras model.)
 3. **Shadow models.** `audit.shadow_models` (default 16) models trained exactly like the target,
    with the same config, DP-SGD included, on as many examples as the target saw. Each candidate
    is in the training set of exactly half of them; the rest is filled from the target's other
    data. This models a strong attacker who knows the training procedure and most of the data,
-   which is what an audit should assume.
+   which is what an audit should assume. With DP, each shadow model is a DP run on the same data,
+   so each is recorded in the privacy budget ledger as an audit run (see below).
 4. **Attacks.** Three, all scored from the true-label probability:
 
    | Attack | Idea | Needs |
@@ -81,21 +83,34 @@ A full run of the audit pair (2,000 + 2,000 candidates, 16 shadow models, synthe
 ```text
 audit-no-dp (no DP)
   attack           AUC      AUC 95% CI    adv  TPR@0.1%   TPR@1%           n
-  loss           0.543     0.525-0.561  0.080     0.00%    0.95%  2000+2000
-  lira-online    0.562     0.544-0.580  0.088     2.15%    3.75%  2000+2000
-  lira-offline   0.575     0.558-0.593  0.122     1.45%    2.75%  2000+2000
+  loss           0.589     0.572-0.607  0.127     0.40%    3.05%  2000+2000
+  lira-online    0.615     0.598-0.632  0.152     2.65%    6.55%  2000+2000
+  lira-offline   0.607     0.590-0.625  0.144     2.40%    6.40%  2000+2000
   FAIL
-audit-dp-sgd (DP-SGD, epsilon 1.83)
+audit-dp-sgd (DP-SGD, epsilon 2.67)
   attack           AUC      AUC 95% CI    adv  TPR@0.1%   TPR@1%           n
-  loss           0.499     0.481-0.517  0.015     0.00%    0.00%  2000+2000
-  lira-online    0.498     0.480-0.516  0.018     0.10%    0.75%  2000+2000
-  lira-offline   0.496     0.478-0.514  0.023     0.15%    0.70%  2000+2000
+  loss           0.510     0.492-0.528  0.035     0.00%    0.00%  2000+2000
+  lira-online    0.509     0.492-0.527  0.036     0.45%    0.80%  2000+2000
+  lira-offline   0.504     0.486-0.522  0.030     0.05%    0.60%  2000+2000
   PASS
 ```
 
-Without DP the loss attack barely beats chance, but LiRA picks out 2.15% of members at a 0.1%
-false-positive rate, about 21 times a random guess: the model has memorised some rare
-transactions. With DP-SGD every attack is at chance.
+2,500 synthetic people with 20 transactions each; the DP-SGD run is per person (epsilon 2.67 for
+everything one person contributed). Without DP every attack beats chance, and LiRA picks out
+2.65% of members at a 0.1% false-positive rate, about 26 times a random guess: the model has
+memorised some rare transactions. With DP-SGD every attack is within chance: each AUC interval
+holds 0.5, and each TPR is within the sampling noise of a perfectly private model.
+
+The audit is not free. Its 16 DP shadow models trained on the same people, so the ledger now
+shows what this data has given up in total:
+
+```text
+$ uv run akili ledger
+synthetic-14086a5224e1 (user-level): epsilon 10.3 at delta 1e-06 over 17 runs (16 audit, 1 training)
+```
+
+That is fine for synthetic data. On real data, audit the model on a separate stand-in dataset,
+or the audit spends the budget the release needs, and the gate fails on the total.
 
 * **AUC** is the chance that a random member scores above a random non-member. 0.5 is a coin
   toss. It summarises the whole curve, so it can look harmless while a few examples are exposed.

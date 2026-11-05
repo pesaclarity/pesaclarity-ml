@@ -1,22 +1,26 @@
 # Membership-inference audit of DP-SGD training: same data and model as audit-no-dp.yaml, with
 # the DP-SGD settings of dp-sgd.yaml. 16 shadow models, each trained with DP-SGD; a few minutes
 # on a laptop CPU. Add --quick for a version under a minute (never passes the gate).
+# noise_seed makes the audit reproducible. That is fine on synthetic data only; the gate refuses
+# any model trained with a fixed seed.
 name: audit-dp-sgd
 track: app
 seed: 42
 data:
-  n_users: 200
-  transactions_per_user: 60
+  n_users: 2500
+  transactions_per_user: 20
   payee_style: varied
 training:
-  epochs: 5
-  batch_size: 128
+  epochs: 8
   learning_rate: 0.5
 dp:
   enabled: true
+  unit: user
+  users_per_step: 100
   l2_norm_clip: 1.0
-  noise_multiplier: 1.1
+  noise_multiplier: 1.5
   target_delta: 1.0e-6
+  noise_seed: 1001
 export:
   max_size_bytes: 512000
 audit:
