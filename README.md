@@ -184,6 +184,8 @@ changes.
 
 ## Licence
 
-Code: [AGPL-3.0](LICENSE). Trained model weights are not covered by the AGPL and will be released
-under a separate model licence; none are committed here. See [MODEL-WEIGHTS.md](MODEL-WEIGHTS.md).
+Code: [AGPL-3.0](LICENSE). Trained model weights are not covered by the AGPL, and none are
+committed here. App-track weights, the ones that ship in the app, are under
+[CC BY-SA 4.0](LICENSE-WEIGHTS). Commercial-track weights are licensed only by written agreement on
+the [commercial terms](COMMERCIAL-MODEL-TERMS.md). See [MODEL-WEIGHTS.md](MODEL-WEIGHTS.md).
 The spec, brand and design decisions live in [pesaclarity/docs](https://github.com/pesaclarity/docs).
