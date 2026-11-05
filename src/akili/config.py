@@ -8,6 +8,7 @@ from typing import Any, Literal, Self
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from akili.privacy.accounting import PrivacyUnit
 from akili.tracks import Track, TrackPolicy, policy_for
 
 
@@ -49,9 +50,21 @@ class DPConfig(_Strict):
     """DP-SGD settings. ``target_delta`` defaults to below 1/n at accounting time."""
 
     enabled: bool = False
+    unit: PrivacyUnit = PrivacyUnit.USER
+    """``user`` protects everything one person contributed, and is the only unit the release
+    gate accepts. ``example`` protects one transaction at a time, for comparison only."""
+    users_per_step: int = Field(default=100, ge=1)
+    """User unit: the expected number of people sampled each step (Poisson)."""
+    max_examples_per_user: int = Field(default=64, ge=1)
+    """User unit: at most this many of a person's examples go into their gradient each step.
+    It bounds the work per step; the clip already bounds each person's influence."""
     l2_norm_clip: float = Field(default=1.0, gt=0)
     noise_multiplier: float = Field(default=1.1, ge=0)
     target_delta: float | None = Field(default=None, gt=0, lt=1)
+    noise_seed: int | None = None
+    """Leave unset for real data: noise and sampling then come from OS entropy and are never
+    logged. Set it only for synthetic runs that must be reproducible, such as CI and audits.
+    The release gate refuses any model trained with it."""
 
 
 class FederatedConfig(_Strict):
@@ -152,6 +165,8 @@ class ExperimentConfig(_Strict):
     export: ExportConfig = ExportConfig()
     audit: AuditConfig = AuditConfig()
     tracking: TrackingConfig = TrackingConfig()
+    ledger: Path | None = None
+    """Privacy budget ledger file; defaults to ``privacy-ledger.jsonl`` in ``output_dir``."""
 
     @model_validator(mode="after")
     def _commercial_needs_privacy(self) -> Self:
@@ -177,6 +192,17 @@ class ExperimentConfig(_Strict):
     @property
     def run_dir(self) -> Path:
         return self.output_dir / self.name
+
+    @property
+    def ledger_path(self) -> Path:
+        return self.ledger or self.output_dir / "privacy-ledger.jsonl"
+
+    @property
+    def dataset_id(self) -> str:
+        """The ledger's name for this config's data. Runs on the same data share it."""
+        from akili.privacy.ledger import synthetic_dataset_id
+
+        return synthetic_dataset_id(self.data.model_dump_json())
 
     def flat_params(self) -> dict[str, Any]:
         """Flattened ``section.key`` parameters for experiment tracking."""

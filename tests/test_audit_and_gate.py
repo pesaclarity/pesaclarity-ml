@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from akili.privacy.accounting import dp_fedavg_report
+from akili.privacy.accounting import PrivacyUnit, dp_fedavg_report, dp_sgd_report
 from akili.privacy.audit import (
     AuditResult,
     membership_advantage,
@@ -11,6 +11,7 @@ from akili.privacy.audit import (
     roc_auc,
 )
 from akili.privacy.gate import ReleaseEvidence, evaluate_release, load_evidence
+from akili.privacy.ledger import BudgetTotal
 from akili.tracks import Track
 
 PRIVACY = dp_fedavg_report(
@@ -19,6 +20,26 @@ PRIVACY = dp_fedavg_report(
     rounds=50,
     noise_multiplier=1.5,
     clip_norm=1.0,
+    noise_seeded=False,
+    delta=1e-8,
+)
+# Two campaigns on the same users.
+BUDGET = BudgetTotal(
+    dataset="real-2026",
+    unit=PrivacyUnit.USER,
+    runs=2,
+    epsilon=PRIVACY.epsilon * 1.4,
+    delta=1e-8,
+    population=50_000,
+)
+EXAMPLE_LEVEL = dp_sgd_report(
+    population=50_000,
+    per_step=500,
+    epochs=1,
+    noise_multiplier=1.5,
+    l2_norm_clip=1.0,
+    noise_seeded=False,
+    unit=PrivacyUnit.EXAMPLE,
     delta=1e-8,
 )
 GOOD_AUDIT = AuditResult(
@@ -40,6 +61,7 @@ def evidence(**overrides: object) -> ReleaseEvidence:
         "model_name": "categoriser",
         "track": Track.COMMERCIAL,
         "privacy": PRIVACY,
+        "budget": BUDGET,
         "audit": GOOD_AUDIT,
         "cohort_size": 5000,
         "secure_aggregation": True,
@@ -93,6 +115,22 @@ def test_gate_checks_every_attack_in_a_report() -> None:
         (
             {"privacy": PRIVACY.model_copy(update={"delta": 1e-7, "population": 20_000_000})},
             "not below 1/population",
+        ),
+        ({"privacy": EXAMPLE_LEVEL}, "not per person"),
+        ({"privacy": PRIVACY.model_copy(update={"noise_seeded": True})}, "fixed seed"),
+        ({"budget": None}, "no privacy budget total"),
+        (
+            {"budget": BUDGET.model_copy(update={"epsilon": 9.0})},
+            "dataset total (2 runs): epsilon 9",
+        ),
+        ({"budget": BUDGET.model_copy(update={"epsilon": 0.1})}, "misses this run"),
+        (
+            {"budget": BUDGET.model_copy(update={"unit": PrivacyUnit.EXAMPLE})},
+            "budget total is per",
+        ),
+        (
+            {"budget": BUDGET.model_copy(update={"population": 200_000_000})},
+            "dataset total (2 runs): delta",
         ),
         ({"secure_aggregation": False}, "secure aggregation"),
         ({"cohort_size": 999}, "below the minimum 1000"),

@@ -21,6 +21,7 @@ uv run pytest                             # core tests; TensorFlow tests skip
 uv run akili synth --out /tmp/tx.jsonl    # write synthetic transactions
 uv run akili vectors                      # regenerate the feature test vectors for the app
 uv run akili epsilon --config configs/dp-sgd.yaml
+uv run akili ledger                       # what every DP run so far has spent, per dataset
 
 uv sync --all-extras                      # add TensorFlow, MLflow and Flower
 uv run akili train --config configs/smoke.yaml
@@ -30,8 +31,10 @@ uv run akili audit --quick --config configs/audit-no-dp.yaml --config configs/au
 ```
 
 Runs write the TFLite model, the trainable copy for fine-tuning on the phone
-(`categoriser-train.tflite`), `model-manifest.json`, `labels.json`, `privacy-report.json` and,
-when audited, `audit-report.json` to `artefacts/<name>/`, and
+(`categoriser-train.tflite`), `model-manifest.json`, `labels.json`, `privacy-report.json`,
+`privacy-budget.json` (what every run on the same data has spent together) and, when audited,
+`audit-report.json` to `artefacts/<name>/`. Every DP run, audit shadow models included, is added
+to the budget ledger `artefacts/privacy-ledger.jsonl`. Runs
 log to a local MLflow store in `mlruns/` (`uv run mlflow ui --backend-store-uri
 sqlite:///mlruns/mlflow.db` to browse). Both folders are git-ignored.
 
@@ -82,7 +85,7 @@ fields marked.
 | Config | What it runs |
 | --- | --- |
 | `configs/smoke.yaml` | Centralised training, no DP. Fast check that everything works. |
-| `configs/dp-sgd.yaml` | Centralised DP-SGD; reports example-level epsilon and delta. |
+| `configs/dp-sgd.yaml` | Centralised DP-SGD per person; reports user-level epsilon and delta. |
 | `configs/audit-no-dp.yaml` | Membership-inference audit baseline: varied payees, no DP. Fails. |
 | `configs/audit-dp-sgd.yaml` | The same data and model with DP-SGD, audited with 16 shadow models. |
 | `configs/federated-smoke.yaml` | Federated simulation without update noise; mechanics only. |
@@ -97,11 +100,20 @@ DP-SGD is implemented in [`train/dp_sgd.py`](src/akili/train/dp_sgd.py) rather t
 tensorflow-privacy, whose last release supports neither Python 3.12 nor Keras 3. Budgets are
 computed with Google's `dp-accounting` (the accountant tensorflow-privacy uses).
 
+The privacy unit is one person, as in federated training: each step samples people, and each
+sampled person's examples give one clipped gradient, so the budget covers everything they
+contributed. Noise comes from OS entropy and is never logged; `dp.noise_seed` makes a synthetic
+run reproducible, and the gate refuses any model trained with it. The ledger
+([`privacy/ledger.py`](src/akili/privacy/ledger.py)) composes every DP run on the same data,
+because each run spends the budget again.
+
 ## Release gate
 
-No model leaves the server until `akili gate --evidence <file>` passes: DP budget within the
-track limits, secure aggregation, minimum cohort, a real membership-inference audit within the
-limits, a DPIA filed with the ODPC and, for the commercial track, legal review. See
+No model leaves the server until `akili gate --evidence <file>` passes: a DP budget per person
+(not per transaction) within the track limits, noise drawn from OS entropy rather than a fixed
+seed, the data's total across every recorded run within the limits too, secure aggregation,
+minimum cohort, a real membership-inference audit within the limits, a DPIA filed with the ODPC
+and, for the commercial track, legal review. See
 [docs/RELEASE-CHECKLIST.md](docs/RELEASE-CHECKLIST.md).
 
 `akili audit` trains the model, then attacks it with a loss-threshold attack and LiRA (online
@@ -127,8 +139,8 @@ src/akili/
   train/                  centralised and DP-SGD training   [train]
   export/                 TFLite export and size budget
   federated/              client, update maths, simulation, Flower adapter
-  privacy/                privacy accounting, membership-inference audit (mia.py [train]),
-                          release gate
+  privacy/                privacy accounting, budget ledger, membership-inference audit
+                          (mia.py [train]), release gate
   tracking.py             MLflow wrapper                    [train]
   cli.py                  the `akili` command
 tests/                    pytest; test_tf_* need the [train] extra

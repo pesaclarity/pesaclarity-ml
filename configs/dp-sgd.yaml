@@ -1,19 +1,23 @@
-# Centralised DP-SGD on synthetic data; prints and logs the example-level budget (epsilon, delta).
+# Centralised DP-SGD on synthetic data; prints and logs the user-level budget (epsilon, delta).
+# Each step samples about 100 of the 2,000 training people; each person's examples give one
+# gradient, clipped to l2_norm_clip, so the budget covers everything a person contributed.
+# No noise_seed: the noise comes from OS entropy, as it must for real data.
 name: dp-sgd
 track: app
 seed: 42
 data:
-  n_users: 200
-  transactions_per_user: 60
+  n_users: 2500
+  transactions_per_user: 20
 training:
-  epochs: 5
-  batch_size: 128
+  epochs: 8
   # Clipped, noised gradients are small; DP-SGD needs a much larger step than Adam.
   learning_rate: 0.5
 dp:
   enabled: true
+  unit: user
+  users_per_step: 100
   l2_norm_clip: 1.0
-  noise_multiplier: 1.1
+  noise_multiplier: 1.5
   target_delta: 1.0e-6
 export:
   max_size_bytes: 512000

@@ -42,6 +42,7 @@ from akili.privacy.audit import (
     loss_scores,
     result_from_scores,
 )
+from akili.privacy.ledger import Ledger, Purpose
 
 IndexArray = npt.NDArray[np.int64]
 
@@ -92,12 +93,19 @@ def run_audit(
     train: IndexArray,
     val: IndexArray,
     *,
+    users: npt.ArrayLike,
     target: Any,
     exported: Path | None = None,
     epsilon: float | None = None,
+    ledger: Ledger | None = None,
     progress: Callable[[str], None] | None = None,
 ) -> AuditReport:
-    """Attack ``target`` (trained on ``x[train]``) and check the results against the limits."""
+    """Attack ``target`` (trained on ``x[train]``) and check the results against the limits.
+
+    The shadow models train on the same records, held-out ones included, so with DP each one
+    is recorded in ``ledger`` as an audit run on this data. On real data, audit a separate
+    stand-in dataset instead, or the audit spends the budget the release needs.
+    """
     from akili.train.pipeline import fit_categoriser
 
     say = progress or (lambda _msg: None)
@@ -124,13 +132,28 @@ def run_audit(
     if fill > len(rest):
         raise ValueError("not enough non-candidate data to fill the shadow training sets")
 
+    people = np.asarray(users)
+    noise_seed = cfg.dp.noise_seed
     shadow_stats = np.zeros((k, len(candidates)), dtype=np.float64)
     for s in range(k):
         say(f"shadow model {s + 1}/{k}")
         data = np.concatenate([candidates[in_mask[s]], rng.choice(rest, fill, replace=False)])
         shadow = fit_categoriser(
-            cfg, x[data], y[data], seed=audit.seed + s + 1, n_classes=n_classes
+            cfg,
+            x[data],
+            y[data],
+            users=people[data],
+            seed=audit.seed + s + 1,
+            n_classes=n_classes,
+            noise_seed=None if noise_seed is None else noise_seed + s + 1,
         )
+        if ledger is not None and shadow.privacy is not None:
+            ledger.record(
+                cfg.dataset_id,
+                shadow.privacy,
+                run=f"{cfg.name}/shadow-{s + 1}",
+                purpose=Purpose.AUDIT,
+            )
         shadow_stats[s] = logit_confidence(_predict(shadow.model, xc, use_tflite), yc)
         del shadow
         gc.collect()

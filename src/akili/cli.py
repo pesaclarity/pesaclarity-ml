@@ -1,5 +1,5 @@
 """Command line: ``akili synth | vectors | reader-vectors | reader-examples | reader | epsilon |
-gate | train | audit | simulate``."""
+ledger | gate | train | audit | simulate``."""
 
 from __future__ import annotations
 
@@ -8,11 +8,13 @@ import json
 import sys
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 from akili.config import AuditConfig, ExperimentConfig, SyntheticDataConfig, load_config
-from akili.privacy.accounting import dp_fedavg_report, dp_sgd_report
+from akili.privacy.accounting import PrivacyUnit, dp_fedavg_report, dp_sgd_report
 from akili.privacy.audit import AuditReport
 from akili.privacy.gate import evaluate_release, load_evidence
+from akili.privacy.ledger import BudgetTotal, Ledger
 from akili.synthetic import generate, write_jsonl
 from akili.tracks import Track
 from akili.vectors import build_vectors, default_path, render, write_vectors
@@ -106,20 +108,25 @@ def _epsilon(args: argparse.Namespace) -> int:
             rounds=fed.rounds,
             noise_multiplier=fed.update_noise_multiplier,
             clip_norm=fed.update_clip_norm,
+            noise_seeded=False,
             delta=cfg.dp.target_delta,
         )
     elif cfg.dp.enabled:
+        users = cfg.dp.unit is PrivacyUnit.USER
+        trained = 1 - cfg.training.validation_fraction
         n = args.population or int(
-            cfg.data.n_users
-            * cfg.data.transactions_per_user
-            * (1 - cfg.training.validation_fraction)
+            cfg.data.n_users * trained
+            if users
+            else cfg.data.n_users * trained * cfg.data.transactions_per_user
         )
         report = dp_sgd_report(
-            n_examples=n,
-            batch_size=cfg.training.batch_size,
+            population=n,
+            per_step=cfg.dp.users_per_step if users else cfg.training.batch_size,
             epochs=cfg.training.epochs,
             noise_multiplier=cfg.dp.noise_multiplier,
             l2_norm_clip=cfg.dp.l2_norm_clip,
+            noise_seeded=cfg.dp.noise_seed is not None,
+            unit=cfg.dp.unit,
             delta=cfg.dp.target_delta,
         )
     else:
@@ -136,11 +143,40 @@ def _epsilon(args: argparse.Namespace) -> int:
     return 0
 
 
+def _runs(n: int) -> str:
+    return f"{n} run" if n == 1 else f"{n} runs"
+
+
+def _ledger(args: argparse.Namespace) -> int:
+    ledger = Ledger(args.path)
+    entries = ledger.entries(args.dataset)
+    if not entries:
+        print(f"nothing recorded in {args.path}", file=sys.stderr)
+        return 1
+    for dataset in sorted({e.dataset for e in entries}):
+        runs = [e for e in entries if e.dataset == dataset]
+        for unit in sorted({e.report.unit for e in runs}):
+            total = ledger.total(dataset, unit)
+            assert total is not None
+            purposes = ", ".join(
+                f"{sum(e.purpose == p for e in runs if e.report.unit is unit)} {p.value}"
+                for p in sorted({e.purpose for e in runs if e.report.unit is unit})
+            )
+            print(
+                f"{dataset} ({unit.value}-level): epsilon {total.epsilon:.3g} at delta "
+                f"{total.delta:.3g} over {_runs(total.runs)} ({purposes})"
+            )
+    return 0
+
+
 def _gate(args: argparse.Namespace) -> int:
     evidence = load_evidence(args.evidence)
     if args.audit:
         report = AuditReport.model_validate_json(Path(args.audit).read_text(encoding="utf-8"))
         evidence = evidence.model_copy(update={"audit": report.results})
+    if args.budget:
+        budget = BudgetTotal.model_validate_json(Path(args.budget).read_text(encoding="utf-8"))
+        evidence = evidence.model_copy(update={"budget": budget})
     decision = evaluate_release(evidence)
     print(json.dumps(decision.model_dump(mode="json"), indent=2))
     return 0 if decision.passed else 1
@@ -225,6 +261,11 @@ def _train(args: argparse.Namespace) -> int:
             f"privacy budget: epsilon {result.privacy.epsilon:.3g}, "
             f"delta {result.privacy.delta:.3g} ({result.privacy.unit.value}-level)"
         )
+    if result.budget is not None:
+        print(
+            f"spent on this data so far: epsilon {result.budget.epsilon:.3g} over "
+            f"{_runs(result.budget.runs)}"
+        )
     if result.audit is not None:
         print(format_audit(result.audit))
     return 0
@@ -245,6 +286,35 @@ def _simulate(args: argparse.Namespace) -> int:
             f"({report.unit.value}-level)"
         )
     return 0
+
+
+def _add_privacy_commands(sub: Any) -> None:
+    """``epsilon``, ``ledger`` and ``gate``."""
+    p = sub.add_parser("epsilon", help="report the privacy budget a config would spend")
+    p.add_argument("--config", required=True)
+    p.add_argument(
+        "--population", type=int, help="people or examples (DP-SGD), or clients (federated)"
+    )
+    p.set_defaults(func=_epsilon)
+
+    p = sub.add_parser("ledger", help="what every recorded DP run has spent, per dataset")
+    p.add_argument(
+        "--path",
+        default=str(ExperimentConfig(name="default").ledger_path),
+        help="the ledger file (default: the one training writes)",
+    )
+    p.add_argument("--dataset", help="only this dataset")
+    p.set_defaults(func=_ledger)
+
+    p = sub.add_parser("gate", help="check release evidence against the track policy")
+    p.add_argument("--evidence", required=True, help="ReleaseEvidence JSON file")
+    p.add_argument(
+        "--audit", help="audit-report.json from `akili audit`; replaces the evidence's audit"
+    )
+    p.add_argument(
+        "--budget", help="privacy-budget.json from training; replaces the evidence's budget"
+    )
+    p.set_defaults(func=_gate)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -283,17 +353,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--skip-evaluation", action="store_true")
     p.set_defaults(func=_reader)
 
-    p = sub.add_parser("epsilon", help="report the privacy budget a config would spend")
-    p.add_argument("--config", required=True)
-    p.add_argument("--population", type=int, help="examples (DP-SGD) or clients (federated)")
-    p.set_defaults(func=_epsilon)
-
-    p = sub.add_parser("gate", help="check release evidence against the track policy")
-    p.add_argument("--evidence", required=True, help="ReleaseEvidence JSON file")
-    p.add_argument(
-        "--audit", help="audit-report.json from `akili audit`; replaces the evidence's audit"
-    )
-    p.set_defaults(func=_gate)
+    _add_privacy_commands(sub)
 
     p = sub.add_parser("train", help="centralised training on synthetic data [train]")
     p.add_argument("--config", required=True)

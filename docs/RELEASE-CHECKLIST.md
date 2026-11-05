@@ -21,9 +21,15 @@ Copy this list into the release issue and fill it in.
 ## Privacy (checked by the gate)
 
 - [ ] Trained with DP-SGD (or DP-FedAvg); `privacy-report.json` attached.
-- [ ] Privacy budget published: epsilon = ___, delta = ___, unit (example or user), accountant,
-      noise multiplier, clip norm, sampling rate and steps.
+- [ ] Privacy budget published: epsilon = ___, delta = ___, unit, accountant, noise
+      multiplier, clip norm, sampling rate and steps.
+- [ ] The unit is `user`: the budget covers everything one person contributed, not one
+      transaction.
+- [ ] The noise came from OS entropy (`noise_seeded: false`); no `dp.noise_seed` on real data.
 - [ ] Epsilon and delta are within the track limits.
+- [ ] The data's total across every recorded run (`privacy-budget.json`, from the ledger) is
+      within the track limits too. Every training and tuning run on the data counts. Audit the
+      model on a separate stand-in dataset, or its shadow models count as well.
 - [ ] Federated updates were combined with secure aggregation.
 - [ ] Every round met the minimum cohort size for the track (app 100, commercial 1,000).
 - [ ] Membership-inference audit (`akili audit`, see [PRIVACY-AUDIT.md](PRIVACY-AUDIT.md)) run
@@ -54,14 +60,15 @@ Copy this list into the release issue and fill it in.
 ## Evidence file
 
 `akili gate` reads a JSON file shaped like `akili.privacy.gate.ReleaseEvidence`. `audit` is one
-attack's result or a list of them; `akili gate --evidence <file> --audit audit-report.json`
-fills it from the audit report instead:
+attack's result or a list of them; `akili gate --evidence <file> --audit audit-report.json
+--budget privacy-budget.json` fills `audit` and `budget` from those files instead:
 
 ```json
 {
   "model_name": "categoriser-2026.11",
   "track": "app",
   "privacy": { "...": "contents of privacy-report.json" },
+  "budget": { "...": "contents of privacy-budget.json" },
   "audit": [
     { "attack": "loss", "auc": 0.51, "advantage": 0.02, "tpr_at_1pct_fpr": 0.011,
       "tpr_at_0_1pct_fpr": 0.001, "n_members": 2000, "n_non_members": 2000 },

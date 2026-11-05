@@ -1,7 +1,8 @@
 """Privacy budget accounting with Google's ``dp-accounting`` RDP accountant.
 
-Both mechanisms are a Poisson-subsampled Gaussian composed over many steps: DP-SGD per example
-(q = batch / n) and DP-FedAvg per user (q = clients per round / eligible clients).
+Both mechanisms are a Poisson-subsampled Gaussian composed over many steps: DP-SGD per person
+(q = people per step / people) or per example (q = batch / examples), and DP-FedAvg per person
+(q = clients per round / eligible clients).
 """
 
 from __future__ import annotations
@@ -42,7 +43,8 @@ class PrivacyUnit(StrEnum):
 class PrivacyReport(BaseModel):
     """The privacy budget published with a model release."""
 
-    model_config = ConfigDict(frozen=True)
+    # Without DP noise epsilon is infinite; keep it infinite in JSON rather than null.
+    model_config = ConfigDict(frozen=True, ser_json_inf_nan="constants")
 
     mechanism: Mechanism
     unit: PrivacyUnit
@@ -54,6 +56,9 @@ class PrivacyReport(BaseModel):
     steps: int = Field(ge=0)
     population: int = Field(ge=1)
     accountant: str = "rdp"
+    noise_seeded: bool = True
+    """True when the noise came from a fixed seed, which anyone holding it could use to remove
+    the noise. Missing means seeded, so older reports are not mistaken for safe ones."""
 
 
 def default_delta(population: int) -> float:
@@ -79,27 +84,34 @@ def epsilon_for(sampling_rate: float, noise_multiplier: float, steps: int, delta
 
 def dp_sgd_report(
     *,
-    n_examples: int,
-    batch_size: int,
+    population: int,
+    per_step: int,
     epochs: int,
     noise_multiplier: float,
     l2_norm_clip: float,
+    noise_seeded: bool,
+    unit: PrivacyUnit = PrivacyUnit.USER,
     delta: float | None = None,
 ) -> PrivacyReport:
-    """Example-level budget for centralised DP-SGD with Poisson sampling."""
-    q = min(1.0, batch_size / n_examples)
-    steps = epochs * max(1, round(n_examples / batch_size))
-    d = delta if delta is not None else default_delta(n_examples)
+    """Budget for centralised DP-SGD with Poisson sampling.
+
+    For ``unit: user``, ``population`` is the number of people and ``per_step`` the expected
+    people per step; for ``unit: example``, examples and the batch size.
+    """
+    q = min(1.0, per_step / population)
+    steps = epochs * max(1, round(population / per_step))
+    d = delta if delta is not None else default_delta(population)
     return PrivacyReport(
         mechanism=Mechanism.DP_SGD,
-        unit=PrivacyUnit.EXAMPLE,
+        unit=unit,
         epsilon=epsilon_for(q, noise_multiplier, steps, d),
         delta=d,
         noise_multiplier=noise_multiplier,
         l2_norm_clip=l2_norm_clip,
         sampling_rate=q,
         steps=steps,
-        population=n_examples,
+        population=population,
+        noise_seeded=noise_seeded,
     )
 
 
@@ -110,9 +122,12 @@ def dp_fedavg_report(
     rounds: int,
     noise_multiplier: float,
     clip_norm: float,
+    noise_seeded: bool,
     delta: float | None = None,
 ) -> PrivacyReport:
-    """User-level budget for DP-FedAvg (clipped updates, Gaussian noise on the aggregate)."""
+    """User-level budget for DP-FedAvg (clipped updates, Gaussian noise on the aggregate).
+
+    ``noise_seeded`` is False only when every client drew its noise from OS entropy."""
     q = min(1.0, clients_per_round / n_clients)
     d = delta if delta is not None else default_delta(n_clients)
     return PrivacyReport(
@@ -125,4 +140,5 @@ def dp_fedavg_report(
         sampling_rate=q,
         steps=rounds,
         population=n_clients,
+        noise_seeded=noise_seeded,
     )
