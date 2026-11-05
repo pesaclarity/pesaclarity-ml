@@ -35,8 +35,7 @@ Copy this list into the release issue and fill it in.
 - [ ] Membership-inference audit (`akili audit`, see [PRIVACY-AUDIT.md](PRIVACY-AUDIT.md)) run
       on the release model with at least the track's `min_audit_examples`; for every attack
       (loss, LiRA online and offline) the AUC, advantage and TPR at 1% and 0.1% FPR are within
-      the track limits. `audit-report.json` attached. The audit limits are provisional until
-      [#3](https://github.com/pesaclarity/pesaclarity-ml/issues/3) is closed.
+      the track limits. `audit-report.json` attached.
 
 ## Compliance (recorded in the evidence file)
 

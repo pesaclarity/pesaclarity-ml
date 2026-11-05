@@ -176,7 +176,9 @@ Keras 3 and Python 3.12, it would be the easiest switch.
 
 ## Recommended thresholds
 
-These are recommendations for the owner. I have not changed `src/akili/resources/tracks.yaml`.
+These were recommendations for the owner. **Adopted on 2026-11-05:** the owner signed them off in
+#3, `src/akili/resources/tracks.yaml` now uses the recommended values with `provisional: false`,
+and every privacy report gives the PLD epsilon (`epsilon_pld`) next to RDP.
 
 Numbers for the audit limits come from a simulation of a perfectly private model (400 trials,
 with "worst of three attacks" approximated by three independent draws):

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from akili.config import AuditConfig, ExperimentConfig, SyntheticDataConfig, load_config
-from akili.privacy.accounting import PrivacyUnit, dp_fedavg_report, dp_sgd_report
+from akili.privacy.accounting import PrivacyReport, PrivacyUnit, dp_fedavg_report, dp_sgd_report
 from akili.privacy.audit import AuditReport
 from akili.privacy.gate import evaluate_release, load_evidence
 from akili.privacy.ledger import BudgetTotal, Ledger
@@ -143,6 +143,13 @@ def _epsilon(args: argparse.Namespace) -> int:
     return 0
 
 
+def _budget(report: PrivacyReport) -> str:
+    pld = "" if report.epsilon_pld is None else f" (PLD {report.epsilon_pld:.3g})"
+    return (
+        f"epsilon {report.epsilon:.3g}{pld}, delta {report.delta:.3g} ({report.unit.value}-level)"
+    )
+
+
 def _runs(n: int) -> str:
     return f"{n} run" if n == 1 else f"{n} runs"
 
@@ -257,10 +264,7 @@ def _train(args: argparse.Namespace) -> int:
         f"at {result.exported.path}"
     )
     if result.privacy is not None:
-        print(
-            f"privacy budget: epsilon {result.privacy.epsilon:.3g}, "
-            f"delta {result.privacy.delta:.3g} ({result.privacy.unit.value}-level)"
-        )
+        print(f"privacy budget: {_budget(result.privacy)}")
     if result.budget is not None:
         print(
             f"spent on this data so far: epsilon {result.budget.epsilon:.3g} over "
@@ -281,10 +285,7 @@ def _simulate(args: argparse.Namespace) -> int:
         f"{result.simulation.eligible_clients} eligible clients"
     )
     if report is not None:
-        print(
-            f"privacy budget: epsilon {report.epsilon:.3g}, delta {report.delta:.3g} "
-            f"({report.unit.value}-level)"
-        )
+        print(f"privacy budget: {_budget(report)}")
     return 0
 
 
