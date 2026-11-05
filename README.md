@@ -156,6 +156,24 @@ uv run ruff format --check . && uv run ruff check . && uv run mypy && uv run pyt
 
 CI runs this on the core install, then again with `--all-extras` plus the smoke training runs.
 
+## Branches and releases
+
+`main` is what model releases are trained and exported from, so it takes only tested, approved
+changes.
+
+1. Pull requests go to `dev`, with a [Conventional Commits](https://www.conventionalcommits.org)
+   title (`feat: …`, `fix: …`, `feat!: …` for a breaking change; `docs`, `test`, `ci`, `chore`,
+   `refactor`, `build`, `perf`, `style`, `revert` too). The `PR title` check enforces it, and
+   squash merges keep the title as the commit message. CI runs on every push to `dev`.
+2. When `dev` is ready, open a pull request from `dev` to `main`. The `Release gate` check allows
+   only `dev` (or the release pull request) into `main`, and its QA job waits for a reviewer in
+   the `qa` environment. Merge it with a merge commit, not a squash, so each change keeps its own
+   title.
+3. On `main`, release-please keeps a release pull request open with the next version (SemVer from
+   the titles: `feat` bumps the minor, `fix` the patch; before 1.0 a breaking change bumps the
+   minor) in `pyproject.toml`, `uv.lock` and `akili.__version__`, and the `CHANGELOG.md` entry.
+   Merging it tags `vX.Y.Z` and merges the release back into `dev`.
+
 ## Get involved
 
 - **Star [the app](https://github.com/pesaclarity/pesaclarity-app)** so more people find a private money app that runs on their phone.
