@@ -7,22 +7,22 @@ Evaluation holds each layout out in turn, so its scores are for wording the mode
 ## account
 
 ```text
-Sample Sacco: On 01/12/2026 4:50 AM, Your A/C XXXX7052 was used to send KES13,030.00 to Lydia Kamau 0783***110. Ref. KW62LS3DU7. Fee Ksh.1.00. New balance is Kshs. 107.00.
+Dear Member, On 9/6/26, Your account has been credited Ksh 107874.01 by AISHA OMONDI. Bal: Kshs. 26395.71.
 ```
 
-money out · date: `01/12/2026` · time: `4:50 AM` · amount: `KES13,030.00` · counterparty: `Lydia Kamau 0783***110` · reference: `KW62LS3DU7` · fee: `Ksh.1.00` · balance: `Kshs. 107.00`
+money in · date: `9/6/26` · amount: `Ksh 107874.01` · counterparty: `AISHA OMONDI` · balance: `Kshs. 26395.71`
 
 ```text
-Hello, On 27-OCT-26 at 1:54 AM, Your account was debited Ksh.147,520.75 for a purchase at Paybill 499804 SOKO SCHOOL. Avl bal KES 457.40.
+93340132 Confirmed. Your a/c ***5628 has been debited 10971 KES towards HILLTOP WATER CO on 13/07/2026 14:47. Charges: KSh 1. Avl bal KSh 1842. Call 0800 000 000 for help.
 ```
 
-money out · date: `27-OCT-26` · time: `1:54 AM` · amount: `Ksh.147,520.75` · counterparty: `Paybill 499804 SOKO SCHOOL` · balance: `KES 457.40`
+money out · reference: `93340132` · amount: `10971 KES` · counterparty: `HILLTOP WATER CO` · date: `13/07/2026` · time: `14:47` · fee: `KSh 1` · balance: `KSh 1842`
 
 ```text
-Your wallet was debited 37 Kshs for withdrawal at agent MFANO SUPERMARKET on 2026-11-21 at 8:03 AM. Reference 21990928390. via app Cost Ksh.94.
+Dear Customer, On now 2026-06-22 at 1:44 PM, Your a/c ***2793 has been credited Ksh 3,351.00 as a reversal from MFANO ELECTRONICS. Trx ID 0423135467. A/C bal KES92.00. Call 0800 000 000 for help. today
 ```
 
-money out · amount: `37 Kshs` · counterparty: `MFANO SUPERMARKET` · date: `2026-11-21` · time: `8:03 AM` · reference: `21990928390` · fee: `Ksh.94`
+money in · date: `2026-06-22` · time: `1:44 PM` · amount: `Ksh 3,351.00` · counterparty: `MFANO ELECTRONICS` · reference: `0423135467` · balance: `KES92.00`
 
 ## amount-first
 
@@ -33,36 +33,36 @@ money out · amount: `37 Kshs` · counterparty: `MFANO SUPERMARKET` · date: `20
 money out · reference: `057041578` · amount: `Ksh.2,043.00` · counterparty: `GREENLEAF SCHOOL` · date: `15/03/2026` · time: `02:37` · balance: `KES1,151.00`
 
 ```text
-Dear Customer, On 13 Feb 2026 at 11:25 PM, 1,374.28 KES credited from HASSAN MUTUA 0725***825. Txn BTZ0NY82L2. New balance is KES13.60. Call 0800 000 000 for help.
+On 24-DEC-26 at 4:45 PM, KSh 74,039.35 spent at Paybill 911709 Sunrise Stores. Cost KES14.94. Avl bal KES 21.44.
 ```
 
-money in · date: `13 Feb 2026` · time: `11:25 PM` · amount: `1,374.28 KES` · counterparty: `HASSAN MUTUA 0725***825` · reference: `BTZ0NY82L2` · balance: `KES13.60`
+money out · date: `24-DEC-26` · time: `4:45 PM` · amount: `KSh 74,039.35` · counterparty: `Paybill 911709 Sunrise Stores` · fee: `KES14.94` · balance: `KES 21.44`
 
 ```text
-98010452342 Confirmed. On 18 Feb 2026, Ksh 170 sent to RIVERSIDE BOOKSHOP. Fee KES 2.
+Ksh.17502 deposited by SAMUEL ODHIAMBO on 19-MAY-26. Call 0800 000 000 for help.
 ```
 
-money out · reference: `98010452342` · date: `18 Feb 2026` · amount: `Ksh 170` · counterparty: `RIVERSIDE BOOKSHOP` · fee: `KES 2`
+money in · amount: `Ksh.17502` · counterparty: `SAMUEL ODHIAMBO` · date: `19-MAY-26`
 
 ## party-first
 
 ```text
-547437460933 Confirmed. GREENLEAF POWER has received KES 30,105.26 from your account on 10 Jun 2026 04:08:23. Account balance KSh 265,522.30. Thank you.
+Dear Customer, On 13 Feb 2026 at 11:25 PM, HASSAN MUTUA 0725***825 sent you 1,374.28 KES. Txn BTZ0NY82L2. New balance is KES13.60. Call 0800 000 000 for help.
 ```
 
-money out · reference: `547437460933` · counterparty: `GREENLEAF POWER` · amount: `KES 30,105.26` · date: `10 Jun 2026` · time: `04:08:23` · balance: `KSh 265,522.30`
+money in · date: `13 Feb 2026` · time: `11:25 PM` · counterparty: `HASSAN MUTUA 0725***825` · amount: `1,374.28 KES` · reference: `BTZ0NY82L2` · balance: `KES13.60`
 
 ```text
-QLT8K3H66V Confirmed. TEST STORES received Ksh 155.13 from your account on 20/7/26. Available balance - Ksh 336282.81.
+070265586 Confirmed. On 06-SEP-26 at 05:01:02, HILLTOP STORES has received KSh 1,776.00 from your account. Avl bal Kshs. 60,664.00. Thank you.
 ```
 
-money out · reference: `QLT8K3H66V` · counterparty: `TEST STORES` · amount: `Ksh 155.13` · date: `20/7/26` · balance: `Ksh 336282.81`
+money out · reference: `070265586` · date: `06-SEP-26` · time: `05:01:02` · counterparty: `HILLTOP STORES` · amount: `KSh 1,776.00` · balance: `Kshs. 60,664.00`
 
 ```text
-SFMJYU6967 Confirmed. On 27-OCT-26 at 10:01, AMINA CHEBET 0765***338 has received via app 15.87 KES. Avl bal Ksh 176.76.
+Dummy Savings: - AMINA NDUTA 0712***924 paid you Ksh 15.06 on 21-JUL-26 at 3:37 AM. Ref. EXGAP1808S. Avl bal Ksh 16,419.22. now
 ```
 
-money out · reference: `SFMJYU6967` · date: `27-OCT-26` · time: `10:01` · counterparty: `AMINA CHEBET 0765***338` · amount: `15.87 KES` · balance: `Ksh 176.76`
+money in · counterparty: `AMINA NDUTA 0712***924` · amount: `Ksh 15.06` · date: `21-JUL-26` · time: `3:37 AM` · reference: `EXGAP1808S` · balance: `Ksh 16,419.22`
 
 ## you-have
 
@@ -79,10 +79,10 @@ You have received now 104 KES from HASSAN MUTUA on 10/8/26. Bal: KES13,961. Neve
 money in · amount: `104 KES` · counterparty: `HASSAN MUTUA` · date: `10/8/26` · balance: `KES13,961`
 
 ```text
-Dear Member, You have transferred Kshs. 9,325.00 to SOKO FUEL STATION on 08-11-2026. Charges: Ksh.2.00. Available balance KSh 655.00.
+45054686 Confirmed. You have paid KSh 60,227.84 to CITY SUPERMARKET on 26/2/26. Transaction cost KES 125.62. Avl bal Kshs. 293,072.31. Thank you.
 ```
 
-money out · amount: `Kshs. 9,325.00` · counterparty: `SOKO FUEL STATION` · date: `08-11-2026` · fee: `Ksh.2.00` · balance: `KSh 655.00`
+money out · reference: `45054686` · amount: `KSh 60,227.84` · counterparty: `CITY SUPERMARKET` · date: `26/2/26` · fee: `KES 125.62` · balance: `Kshs. 293,072.31`
 
 ## noun
 
@@ -93,116 +93,136 @@ On 24/07/26 11:58 PM, Deposit of now Ksh.37.27 by WANJIRU CHEBET confirmed. Your
 money in · date: `24/07/26` · time: `11:58 PM` · amount: `Ksh.37.27` · counterparty: `WANJIRU CHEBET` · balance: `KES 83.44`
 
 ```text
-GSC40E8M3S Confirmed. Purchase of 744.73 Ksh at BLUEWAVE HOSPITAL on 2026-11-14 9:49 PM. Available balance KES 164.16.
+12501287 Confirmed. On kindly note 23/07/26, Withdrawal of KES292.48 to Test Fuel Station. Bal: through mobile banking Ksh 352079.23. successfully
 ```
 
-money out · reference: `GSC40E8M3S` · amount: `744.73 Ksh` · counterparty: `BLUEWAVE HOSPITAL` · date: `2026-11-14` · time: `9:49 PM` · balance: `KES 164.16`
+money out · reference: `12501287` · date: `23/07/26` · amount: `KES292.48` · counterparty: `Test Fuel Station` · balance: `Ksh 352079.23`
 
 ```text
-513053263724 Confirmed. Purchase of Ksh.121831 to GREENLEAF HARDWARE completed on 2026-02-20 at 03:45:13. Bal: KES 18.
+60994081056 Confirmed. Receipt of KES11,119 from NJERI MUTUA on 25 Dec 2026 at 14:43.
 ```
 
-money out · reference: `513053263724` · amount: `Ksh.121831` · counterparty: `GREENLEAF HARDWARE` · date: `2026-02-20` · time: `03:45:13` · balance: `KES 18`
+money in · reference: `60994081056` · amount: `KES11,119` · counterparty: `NJERI MUTUA` · date: `25 Dec 2026` · time: `14:43`
 
 ## verb-first
 
 ```text
-Dear Member, On 27/01/2026 5:54 AM, Spent Ksh 231 to Paybill 856271 EXAMPLE GROCERS. Your balance is Kshs. 2,259.
+On 16 Feb 2026 at 6:45 AM, Received Ksh 23,338.00 from BLUEWAVE SCHOOL. Reference 52488374. Bal: KES 9,309.00.
 ```
 
-money out · date: `27/01/2026` · time: `5:54 AM` · amount: `Ksh 231` · counterparty: `Paybill 856271 EXAMPLE GROCERS` · balance: `Kshs. 2,259`
+money in · date: `16 Feb 2026` · time: `6:45 AM` · amount: `Ksh 23,338.00` · counterparty: `BLUEWAVE SCHOOL` · reference: `52488374` · balance: `KES 9,309.00`
 
 ```text
-Sent KES81523.41 to Wanjiru Nduta on 27/1/26. Txn YCKT07H12H. Your balance is KES114150.49. Never share your PIN.
+9774988532 Confirmed. Sent Ksh.66 to EXAMPLE CAFE on via app 15-05-2026 08:07. Your balance is KES29.
 ```
 
-money out · amount: `KES81523.41` · counterparty: `Wanjiru Nduta` · date: `27/1/26` · reference: `YCKT07H12H` · balance: `KES114150.49`
+money out · reference: `9774988532` · amount: `Ksh.66` · counterparty: `EXAMPLE CAFE` · date: `15-05-2026` · time: `08:07` · balance: `KES29`
 
 ```text
-850697843 Confirmed. Got KSh 42.07 from GRACE CHEBET 0796***451 on 02/07/26 at 5:19 AM.
+On 10-JUN-26 00:33, Paid Ksh.341.26 at DAVID KIPTOO. Avl bal KES 191.62.
 ```
 
-money in · reference: `850697843` · amount: `KSh 42.07` · counterparty: `GRACE CHEBET 0796***451` · date: `02/07/26` · time: `5:19 AM`
+money out · date: `10-JUN-26` · time: `00:33` · amount: `Ksh.341.26` · counterparty: `DAVID KIPTOO` · balance: `KES 191.62`
 
 ## key-value
 
 ```text
-Test Credit Union: Transaction: Amt: Kshs. 93.27 Payee: David Kiptoo Date: 15-MAY-26 08:49:38. Transaction cost Kshs. 3.52. Your balance is Ksh 1,524.31.
+Dear Member, Transaction: today Payee: successfully Hilltop Hardware Amt: 6,685.00 KES Date: 14/04/26 19:46:59. Ref. 84931510233. Fee Ksh 5.00. Your balance is Kshs. 339.00.
 ```
 
-money out · amount: `Kshs. 93.27` · counterparty: `David Kiptoo` · date: `15-MAY-26` · time: `08:49:38` · fee: `Kshs. 3.52` · balance: `Ksh 1,524.31`
+money out · counterparty: `Hilltop Hardware` · amount: `6,685.00 KES` · date: `14/04/26` · time: `19:46:59` · reference: `84931510233` · fee: `Ksh 5.00` · balance: `Kshs. 339.00`
 
 ```text
-Dear Member, Txn alert: Amt: 6832.94 Kshs Beneficiary: SAMPLE FUEL STATION Date: 2026-02-03 4:33 PM. Charges: KSh 215.76. Bal: KES166562.52.
+Test Credit Union: Transaction: Amt: KSh 43,426.48 To: Acc 473960 SAMPLE HARDWARE Date: 03-04-2026 06:52. Ref. 75156931213. Charge Ksh.59.29. A/C bal KES 64.41.
 ```
 
-money out · amount: `6832.94 Kshs` · counterparty: `SAMPLE FUEL STATION` · date: `2026-02-03` · time: `4:33 PM` · fee: `KSh 215.76` · balance: `KES166562.52`
+money out · amount: `KSh 43,426.48` · counterparty: `Acc 473960 SAMPLE HARDWARE` · date: `03-04-2026` · time: `06:52` · reference: `75156931213` · fee: `Ksh.59.29` · balance: `KES 64.41`
 
 ```text
-Dear Member, Debit alert. Payee: Demo Bookshop Amount: 13,323.06 Kshs Date: 09/03/26. Avl bal through mobile banking KSh 910.57.
+Debit alert. Amount: Kshs. 17.82 To: Till 822950 BAHARI ELECTRONICS Date: 16-JAN-26 9:47 PM. Transaction ID: 99322625457. Transaction cost Kshs. 1.18. Available balance KES14.45.
 ```
 
-money out · counterparty: `Demo Bookshop` · amount: `13,323.06 Kshs` · date: `09/03/26` · balance: `KSh 910.57`
+money out · amount: `Kshs. 17.82` · counterparty: `Till 822950 BAHARI ELECTRONICS` · date: `16-JAN-26` · time: `9:47 PM` · reference: `99322625457` · fee: `Kshs. 1.18` · balance: `KES14.45`
 
 ## wallet
 
 ```text
-YYV4S7TWPV Confirmed. on 17/11/26 at 12:54 PM Withdraw Ksh2,724.18 from through mobile banking 350078 - - TEST GROCERS. New balance is Ksh20,119.02. Transaction cost, Ksh12.09. Amount you can transact within the day is 2,751.36. To view the Full Number, forward this message to 000.
+QKCLN4AK1B confirmed. You have received Ksh15.07 from Bluewave Grocers 918962 via app on 7/5/26 at 5:13 PM. New balance is Ksh256.33. Separate personal and business funds through Example Biashara on *000#.
 ```
 
-money out · reference: `YYV4S7TWPV` · date: `17/11/26` · time: `12:54 PM` · amount: `Ksh2,724.18` · counterparty: `TEST GROCERS` · balance: `Ksh20,119.02` · fee: `Ksh12.09`
+money in · reference: `QKCLN4AK1B` · amount: `Ksh15.07` · counterparty: `Bluewave Grocers` · date: `7/5/26` · time: `5:13 PM` · balance: `Ksh256.33`
 
 ```text
-XHFTRN96DR confirmed. Ksh224.18 paid to HILLTOP BOOKSHOP. on 18/8/26 at 2:15 PM. New balance is Ksh147.88. Transaction cost, Ksh5.95.
+XCM1DVD9PA Confirmed. on 10/5/26 at 12:15 PM Withdraw Ksh6,016.42 from 455434 - BAHARI SCHOOL. New balance is Ksh692.55. Transaction cost, Ksh25.13. Amount you can transact within the day is 1,303.59. Save frequent paybills for quick payment on the app https://example.com/app
 ```
 
-money out · reference: `XHFTRN96DR` · amount: `Ksh224.18` · counterparty: `HILLTOP BOOKSHOP` · date: `18/8/26` · time: `2:15 PM` · balance: `Ksh147.88` · fee: `Ksh5.95`
+money out · reference: `XCM1DVD9PA` · date: `10/5/26` · time: `12:15 PM` · amount: `Ksh6,016.42` · counterparty: `BAHARI SCHOOL` · balance: `Ksh692.55` · fee: `Ksh25.13`
 
 ```text
-ZHYZ6SHHP6 Confirmed. Ksh9,244.45 paid to Soko Grocers. on 26/11/26 at 8:21 AM. New balance is Ksh94,814.34. Transaction cost, Ksh1.09. Amount you can transact within the day is 37,532.10. Earn interest daily on Example MMF,Dial *000#
+FZVUWV38Z2 Confirmed. You have received Ksh597.94 from now david  odhiambo 0747***213 on 8/7/26 at 9:05 PM. New balance is Ksh12.08. Save frequent paybills for quick payment on the app https://example.com/app
 ```
 
-money out · reference: `ZHYZ6SHHP6` · amount: `Ksh9,244.45` · counterparty: `Soko Grocers` · date: `26/11/26` · time: `8:21 AM` · balance: `Ksh94,814.34` · fee: `Ksh1.09`
+money in · reference: `FZVUWV38Z2` · amount: `Ksh597.94` · counterparty: `david  odhiambo` · date: `8/7/26` · time: `9:05 PM` · balance: `Ksh12.08`
 
 ## transaction-of
 
 ```text
-Your transaction of Kshs. 431.0 has been credited to OTIENO  DOE 254701807122. Ref. EQAQPCWD3CDGP4CG. Wallet Ref. through mobile banking LPB0DQP11S on 08/11/2026 at - 17:15:13.
+Your transaction of Kshs. 2724.0 has been credited to Peter  Njoroge 254795939978. today Ref. - EQAMQKVPVBC35JAA. Wallet Ref. GTNQDN2YSF on 18/01/2026 at 23:35:42.
 ```
 
-money out · amount: `Kshs. 431.0` · counterparty: `OTIENO  DOE` · reference: `EQAQPCWD3CDGP4CG` · date: `08/11/2026` · time: `17:15:13`
+money out · amount: `Kshs. 2724.0` · counterparty: `Peter  Njoroge` · reference: `EQAMQKVPVBC35JAA` · date: `18/01/2026` · time: `23:35:42`
 
 ```text
-Your transaction of Kshs. 406.0 has been credited to 254773788271 Wanjiru  Mutua. Ref. EQAQYSQJN82M7NTQ. Wallet Ref. VNJEV5JAKP on 06/10/2026 at 06:30:50.
+Your transaction of Kshs. 21972.0 has been credited to Amina  Mwangi 254740558584. Ref. EQADMRHFM43UK89G. Wallet Ref. WHMXYWJT7M on 07/07/2026 at 11:22:59.
 ```
 
-money out · amount: `Kshs. 406.0` · counterparty: `Wanjiru  Mutua` · reference: `EQAQYSQJN82M7NTQ` · date: `06/10/2026` · time: `06:30:50`
+money out · amount: `Kshs. 21972.0` · counterparty: `Amina  Mwangi` · reference: `EQADMRHFM43UK89G` · date: `07/07/2026` · time: `11:22:59`
 
 ```text
-Your transaction of Kshs. 10.0 has been credited to hassan  nduta 254716571162. kindly note Ref. EQAYTXYYW2Y3FBR3. on 10/10/2026 at 12:53:43.
+Your transaction of Kshs. 1496.0 has been credited to today OTIENO  ATIENO 254733197462. Ref. EQABYT58Z46L1PZ7. Wallet Ref. kindly note LXTAX58DLW on 25/04/2026 at 05:48:56.
 ```
 
-money out · amount: `Kshs. 10.0` · counterparty: `hassan  nduta` · reference: `EQAYTXYYW2Y3FBR3` · date: `10/10/2026` · time: `12:53:43`
+money out · amount: `Kshs. 1496.0` · counterparty: `OTIENO  ATIENO` · reference: `EQABYT58Z46L1PZ7` · date: `25/04/2026` · time: `05:48:56`
 
 ## code-first
 
 ```text
-BCHJ5Z3VETZ6PDKG KES 43,426.41 sent from 712****509 to 254****064 - Njeri Mutua on 2026-07-09 03:33:01 PM.
+EDKNW45GJF5LYTFP KES 418.01 sent from 009****977 to 254****858 - BRIAN KAMAU on 2026-08-01 12:13:57 AM. Wallet REF: ABMYEK58AY
 ```
 
-money out · reference: `BCHJ5Z3VETZ6PDKG` · amount: `KES 43,426.41` · counterparty: `Njeri Mutua` · date: `2026-07-09` · time: `03:33:01 PM`
+money out · reference: `EDKNW45GJF5LYTFP` · amount: `KES 418.01` · counterparty: `BRIAN KAMAU` · date: `2026-08-01` · time: `12:13:57 AM`
 
 ```text
-WNZM5GZ27N15QJVZ KES 22,668.62 sent from 750****176 to 254****260 - FAITH MWANGI on 2026-05-04 02:50:19 PM. through mobile banking
+TKBETJRHBLD23Z8X KES 26,607.12 received from Faith Ochieng - 489****579 on 2026-09-16 05:05:58 AM. Wallet REF: CDN2JZ9ZYP
 ```
 
-money out · reference: `WNZM5GZ27N15QJVZ` · amount: `KES 22,668.62` · counterparty: `FAITH MWANGI` · date: `2026-05-04` · time: `02:50:19 PM`
+money in · reference: `TKBETJRHBLD23Z8X` · amount: `KES 26,607.12` · counterparty: `Faith Ochieng` · date: `2026-09-16` · time: `05:05:58 AM`
 
 ```text
-RRV17S2Y78D71P57 KES 1,433.34 received from MOSES OCHIENG - 648****772 on 2026-05-14 01:16:32 AM. Wallet REF: UAA7A4XX31
+RRNBP1KEU96KJSV3 KES 97,676.35 sent from 878****018 to 254****270 - GRACE OMONDI on 2026-08-05 01:04:03 AM.
 ```
 
-money in · reference: `RRV17S2Y78D71P57` · amount: `KES 1,433.34` · counterparty: `MOSES OCHIENG` · date: `2026-05-14` · time: `01:16:32 AM`
+money out · reference: `RRNBP1KEU96KJSV3` · amount: `KES 97,676.35` · counterparty: `GRACE OMONDI` · date: `2026-08-05` · time: `01:04:03 AM`
+
+## sacco
+
+```text
+Dear Member now your loan repayment of KES 1,611.56 to Sample Sacco has been received on 4 May 2026. please Ref: | RTSGDF1UNA. Keep saving.
+```
+
+money out · amount: `KES 1,611.56` · counterparty: `Sample Sacco` · date: `4 May 2026` · reference: `RTSGDF1UNA`
+
+```text
+Dear Member your loan repayment of KES 1,774.50 to Sampuli Sacco has been received on 04/07/2026 at through mobile banking 06:24. Ref: VGN4339DYM. please Loan balance: KES 346,607.23 today.
+```
+
+money out · amount: `KES 1,774.50` · counterparty: `Sampuli Sacco` · date: `04/07/2026` · time: `06:24` · reference: `VGN4339DYM`
+
+```text
+Dear Njeri, your deposit of KES 79,648.98 to Sample Sacco account 8631454651 has been received on 07/01/2026 at 6:11 AM. Ref: - UXSMWB9EPU. Your new balance is KES 99,176.77.
+```
+
+money in · amount: `KES 79,648.98` · counterparty: `Sample Sacco` · date: `07/01/2026` · time: `6:11 AM` · reference: `UXSMWB9EPU` · balance: `KES 99,176.77`
 
 ## Not transactions
 
@@ -225,19 +245,19 @@ Your request could not be completed. Wrong PIN.
 not transaction · none
 
 ```text
-Mock Wallet: Your loan limit is now please KSh 2,684.
+Test Credit Union: Your loan limit is now Ksh 747.
 ```
 
 not transaction · none
 
 ```text
-Use 798238
+Test Credit Union: New balance is KES6,239.73 as at 12/05/2026.
 ```
 
-not transaction · none
+not transaction · balance: `KES6,239.73` · date: `12/05/2026`
 
 ```text
-Your overdraft limit is now Ksh 10,126.41. Dial *000# to use it.
+Placeholder Pay: Your loan limit is now KES50,263. now
 ```
 
 not transaction · none
