@@ -55,6 +55,9 @@ def test_dp_sgd_report_is_user_level_by_default() -> None:
     assert report.sampling_rate == pytest.approx(0.05)
     assert not report.noise_seeded
     assert 0 < report.epsilon < 3
+    # PLD is tighter than RDP for the same mechanism, and both are reported.
+    assert report.epsilon_pld is not None
+    assert 0 < report.epsilon_pld < report.epsilon
 
 
 def test_dp_sgd_report_per_example() -> None:

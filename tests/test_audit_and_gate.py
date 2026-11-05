@@ -46,8 +46,8 @@ GOOD_AUDIT = AuditResult(
     attack="loss",
     auc=0.51,
     advantage=0.02,
-    n_members=2000,
-    n_non_members=2000,
+    n_members=5000,
+    n_non_members=5000,
     tpr_at_0_1pct_fpr=0.001,
     tpr_at_1pct_fpr=0.012,
 )
@@ -94,7 +94,7 @@ def test_result_from_scores() -> None:
 def test_complete_evidence_passes() -> None:
     decision = evaluate_release(evidence())
     assert decision.passed, decision.failures
-    assert any("provisional" in n and "#3" in n for n in decision.notes)
+    assert decision.notes == ()  # the limits were signed off in #3
 
 
 def test_gate_checks_every_attack_in_a_report() -> None:
@@ -141,7 +141,7 @@ def test_gate_checks_every_attack_in_a_report() -> None:
         ({"audit": GOOD_AUDIT.model_copy(update={"advantage": 0.2})}, "attack advantage"),
         ({"audit": GOOD_AUDIT.model_copy(update={"tpr_at_1pct_fpr": 0.2})}, "TPR at 1% FPR"),
         ({"audit": GOOD_AUDIT.model_copy(update={"tpr_at_0_1pct_fpr": None})}, "no TPR at 0.1%"),
-        ({"audit": GOOD_AUDIT.model_copy(update={"n_non_members": 500})}, "below the minimum 2000"),
+        ({"audit": GOOD_AUDIT.model_copy(update={"n_non_members": 500})}, "below the minimum 5000"),
         ({"dpia_filed": False}, "impact assessment"),
         ({"legal_review": False}, "legal review"),
         ({"model_size_bytes": 600_000}, "byte budget"),

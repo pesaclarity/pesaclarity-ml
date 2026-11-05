@@ -67,7 +67,7 @@ MLflow:
 | --- | --- |
 | `audit.<attack>.auc`, `.advantage`, `.tpr_at_1pct_fpr`, `.tpr_at_0_1pct_fpr` | Per-attack metrics |
 | `audit.passed` (metric 0/1 and tag) | Whether every attack is within the limits |
-| `audit.limits_provisional` (tag) | The limits still await review |
+| `audit.limits_provisional` (tag) | `false` since the limits were signed off |
 | `audit-report.json` (artefact) | The full report |
 
 For a release, pass the report to the gate with the rest of the evidence:
@@ -136,33 +136,33 @@ is too weak to say anything, and the DP result should not be trusted as evidence
 `payee_style: varied` exists so the synthetic data has the long tail of rare merchants and
 people that real statements have and a model can memorise.
 
-## Limits, and why they are provisional
+## Limits
 
 The limits live with the other track thresholds in
-[`resources/tracks.yaml`](../src/akili/resources/tracks.yaml):
+[`resources/tracks.yaml`](../src/akili/resources/tracks.yaml). They were signed off on 2026-11-05
+in [pesaclarity-ml#3](https://github.com/pesaclarity/pesaclarity-ml/issues/3), from the
+recommendations in [DP-SGD-REVIEW.md](DP-SGD-REVIEW.md#recommended-thresholds):
 
 | Limit | App | Commercial |
 | --- | --- | --- |
-| `max_attack_auc` | 0.60 | 0.55 |
+| `max_attack_auc` | 0.55 | 0.53 |
 | `max_attack_advantage` | 0.10 | 0.05 |
-| `max_attack_tpr_at_1pct_fpr` | 0.05 | 0.03 |
+| `max_attack_tpr_at_1pct_fpr` | 0.03 | 0.02 |
 | `max_attack_tpr_at_0_1pct_fpr` | 0.01 | 0.005 |
-| `min_audit_examples` (members and non-members each) | 1,000 | 2,000 |
+| `min_audit_examples` (members and non-members each) | 2,000 | 5,000 |
 
-**All of these are provisional** until the review in
-[pesaclarity-ml#3](https://github.com/pesaclarity/pesaclarity-ml/issues/3) signs them off; the
-`provisional: true` flag makes the gate and every audit report say so. Points for that review:
+Why these values:
 
-* The commercial limits sit close to the sampling noise of a perfectly private model at 2,000
-  per side: advantage 0.05 against a null 95th percentile of 0.043 (99th: 0.050), and TPR@0.1%
-  0.005 against a null 95th percentile of 0.004. Three attacks are checked, which adds multiple
-  comparisons. A clean model can fail by chance; either raise `min_audit_examples` (the noise
-  shrinks with the square root of *n*) or relax those limits.
+* Each sits above what a perfectly private model shows by chance: at 2,000 per side, the 95th
+  percentile of the worst of the three attacks is AUC 0.519, advantage 0.049, TPR@1% 0.018 and
+  TPR@0.1% 0.005. The commercial track's tighter advantage and TPR@0.1% limits need 5,000 per
+  side, where those fall to 0.030 and 0.003.
+* The no-DP baseline above fails the app limits on AUC (0.615), advantage (0.152) and both TPR
+  limits, so they separate a model that memorises from one that does not.
 * DP theory bounds TPR by e^epsilon x FPR + delta, which is vacuous at the app track's epsilon of
   8, so the TPR limits are empirical, not derived from the budget.
 * The attacker model (knows the procedure and all but the target example) is deliberately
-  strong. Agree it, and whether to add attacks (for example user-level inference for federated
-  models), before the first release.
+  strong. User-level attacks for federated models are follow-up work (see Scope).
 
 A config's `audit:` section can tighten any limit for one experiment (`max_attack_auc`,
 `max_attack_advantage`, `max_attack_tpr_at_1pct_fpr`, `max_attack_tpr_at_0_1pct_fpr`,

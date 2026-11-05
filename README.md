@@ -120,9 +120,10 @@ and, for the commercial track, legal review. See
 
 `akili audit` trains the model, then attacks it with a loss-threshold attack and LiRA (online
 and offline, with shadow models trained the same way) and reports attack AUC, advantage and the
-true-positive rate at 0.1% and 1% false positives. The audit limits are **provisional** until
-[#3](https://github.com/pesaclarity/pesaclarity-ml/issues/3) reviews them. How to run it and read
-the numbers: [docs/PRIVACY-AUDIT.md](docs/PRIVACY-AUDIT.md).
+true-positive rate at 0.1% and 1% false positives, against limits signed off in
+[#3](https://github.com/pesaclarity/pesaclarity-ml/issues/3). How to run it and read the
+numbers: [docs/PRIVACY-AUDIT.md](docs/PRIVACY-AUDIT.md). Each privacy report also gives the
+tighter PLD accountant's epsilon (`epsilon_pld`) next to the RDP one the gate checks.
 
 ## Project layout
 
@@ -183,6 +184,8 @@ changes.
 
 ## Licence
 
-Code: [AGPL-3.0](LICENSE). Trained model weights are not covered by the AGPL and will be released
-under a separate model licence; none are committed here. See [MODEL-WEIGHTS.md](MODEL-WEIGHTS.md).
+Code: [AGPL-3.0](LICENSE). Trained model weights are not covered by the AGPL, and none are
+committed here. App-track weights, the ones that ship in the app, are under
+[CC BY-SA 4.0](LICENSE-WEIGHTS). Commercial-track weights are licensed only by written agreement on
+the [commercial terms](COMMERCIAL-MODEL-TERMS.md). See [MODEL-WEIGHTS.md](MODEL-WEIGHTS.md).
 The spec, brand and design decisions live in [pesaclarity/docs](https://github.com/pesaclarity/docs).

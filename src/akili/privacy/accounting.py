@@ -56,6 +56,9 @@ class PrivacyReport(BaseModel):
     steps: int = Field(ge=0)
     population: int = Field(ge=1)
     accountant: str = "rdp"
+    epsilon_pld: float | None = Field(default=None, ge=0)
+    """The same budget from the PLD accountant, which is tighter. Published alongside; the gate
+    uses the RDP ``epsilon``, which is the safer upper bound."""
     noise_seeded: bool = True
     """True when the noise came from a fixed seed, which anyone holding it could use to remove
     the noise. Missing means seeded, so older reports are not mistaken for safe ones."""
@@ -75,6 +78,22 @@ def epsilon_for(sampling_rate: float, noise_multiplier: float, steps: int, delta
     if noise_multiplier <= 0:
         return float("inf")
     accountant = dp_accounting.rdp.RdpAccountant(orders=list(RDP_ORDERS))
+    event = dp_accounting.PoissonSampledDpEvent(
+        sampling_rate, dp_accounting.GaussianDpEvent(noise_multiplier)
+    )
+    accountant.compose(event, steps)
+    return float(accountant.get_epsilon(delta))
+
+
+def pld_epsilon_for(
+    sampling_rate: float, noise_multiplier: float, steps: int, delta: float
+) -> float:
+    """Epsilon of the same mechanism from the privacy loss distribution (PLD) accountant."""
+    if steps == 0:
+        return 0.0
+    if noise_multiplier <= 0:
+        return float("inf")
+    accountant = dp_accounting.pld.PLDAccountant(value_discretization_interval=1e-4)
     event = dp_accounting.PoissonSampledDpEvent(
         sampling_rate, dp_accounting.GaussianDpEvent(noise_multiplier)
     )
@@ -105,6 +124,7 @@ def dp_sgd_report(
         mechanism=Mechanism.DP_SGD,
         unit=unit,
         epsilon=epsilon_for(q, noise_multiplier, steps, d),
+        epsilon_pld=pld_epsilon_for(q, noise_multiplier, steps, d),
         delta=d,
         noise_multiplier=noise_multiplier,
         l2_norm_clip=l2_norm_clip,
@@ -134,6 +154,7 @@ def dp_fedavg_report(
         mechanism=Mechanism.DP_FEDAVG,
         unit=PrivacyUnit.USER,
         epsilon=epsilon_for(q, noise_multiplier, rounds, d),
+        epsilon_pld=pld_epsilon_for(q, noise_multiplier, rounds, d),
         delta=d,
         noise_multiplier=noise_multiplier,
         l2_norm_clip=clip_norm,

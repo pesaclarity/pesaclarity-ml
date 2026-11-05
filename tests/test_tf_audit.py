@@ -53,13 +53,13 @@ def test_pipeline_runs_audit_and_logs_it(tmp_path: Path) -> None:
     assert [r.attack for r in report.results] == ["loss", "lira-online", "lira-offline"]
     assert all(r.n_members == r.n_non_members == 50 for r in report.results)
     assert not report.passed  # 50 candidates is far below any track's minimum
-    assert report.limits.provisional
+    assert not report.limits.provisional
 
     run = mlflow.get_run(result.run_id)
     assert "audit.lira-online.auc" in run.data.metrics
     assert "audit.loss.tpr_at_0_1pct_fpr" in run.data.metrics
     assert run.data.tags["audit.passed"] == "false"
-    assert run.data.tags["audit.limits_provisional"] == "true"
+    assert run.data.tags["audit.limits_provisional"] == "false"
 
 
 def test_lira_detects_a_memorising_model(tmp_path: Path) -> None:

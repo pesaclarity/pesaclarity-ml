@@ -129,7 +129,7 @@ def test_lira_validates_shapes_and_coverage() -> None:
 def test_limits_come_from_track_and_only_tighten() -> None:
     app = AuditLimits.from_policy(policy_for(Track.APP))
     commercial = AuditLimits.from_policy(policy_for(Track.COMMERCIAL))
-    assert app.provisional
+    assert not app.provisional
     assert commercial.max_auc <= app.max_auc
     assert commercial.min_examples >= app.min_examples
     tight = app.tightened(
