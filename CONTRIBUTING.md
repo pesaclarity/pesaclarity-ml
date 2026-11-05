@@ -44,5 +44,10 @@ configs/federated-smoke.yaml`).
 
 ## Commits and pull requests
 
-Small, focused commits with short imperative messages. One topic per pull request, with tests for
-new behaviour and green CI.
+- Small, focused pull requests against `dev`: one topic each, with tests for new behaviour and
+  green CI. `main` takes only `dev` and release pull requests (see
+  [Branches and releases](README.md#branches-and-releases)).
+- Pull request titles follow [Conventional Commits](https://www.conventionalcommits.org):
+  `feat: add a Sacco layout`, `fix: …`, `feat!: …` for a breaking change. They set the next
+  version and the changelog.
+- Commit messages: one short line in the imperative, e.g. "Add a Sacco layout".
