@@ -60,7 +60,7 @@ A second, separate model reads the fields of bank and wallet messages that no pa
 matched, for the app's review inbox: amount, payee, date, time, balance, reference, fee, and
 whether it is money out, money in or not a transaction. It tags each token with a small 1-D
 convolutional network (about 200 KB as TFLite) and trains on synthetic messages only, built from
-invented institutions, people and amounts in seven sentence layouts. The person confirms every
+invented institutions, people and amounts in eleven sentence layouts. The person confirms every
 suggestion. [docs/READER.md](docs/READER.md) is the spec the app implements, with conformance
 vectors in [`reader_vectors.v1.json`](src/akili/resources/reader_vectors.v1.json).
 
@@ -71,12 +71,14 @@ uv run akili reader-examples                    # regenerate docs/READER-EXAMPLE
 ```
 
 `reader-report.json` holds each layout's scores when that layout was left out of training: the
-honest measure for wording the app has never seen. Training covers ten layouts, three of them
+honest measure for wording the app has never seen. Training covers eleven layouts: three
 modelled on public M-PESA, Equity and KCB samples (receipt first, "Your transaction of ...", a
-16-character code first). On synthetic messages in an unseen layout the mean F1 is about 0.85 for
-the amount, 0.72 for the payee and 0.99 for the date; payee-first sentences ("JOHN DOE has sent
-you ...") and the bank-to-wallet layouts are the weak spots. Layouts it was trained on score close
-to 1. Real messages will score lower.
+16-character code first), and one in the style of Sacco alerts (deposits and loan repayments,
+"Dear Member, your deposit of ..."). On synthetic messages in an unseen layout the mean F1 is
+about 0.79 for the amount, 0.70 for the payee and 0.98 for the date; payee-first sentences
+("JOHN DOE has sent you ..."), the bank-to-wallet layouts and Sacco alerts (where the Sacco
+itself is the payee) are the weak spots. Layouts it was trained on score close to 1. Real
+messages will score lower.
 [docs/READER-EXAMPLES.md](docs/READER-EXAMPLES.md) shows sample messages for each layout with their
 fields marked.
 

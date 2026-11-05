@@ -231,6 +231,7 @@ LAYOUTS = [
     "wallet",  # QJA1BC2DE3 Confirmed. Ksh500.00 sent to JOHN DOE 0712***345 on 5/8/26 at 7:07 AM.
     "transaction-of",  # Your transaction of Kshs. 500.0 has been credited to 2547... JOHN DOE.
     "code-first",  # ABCD1234EFGH5678 KES 500.00 sent from 123****456 to 254****789 - JOHN DOE on
+    "sacco",  # Dear Member, your deposit of KES 2,000.00 to Sample Sacco account 0012***45 has been
 ]
 """Sentence layouts. Evaluation holds each one out in turn."""
 # (words before the amount, words between amount and party, kind of party)
@@ -703,16 +704,84 @@ def _code_first(g: _Gen, out: bool, cur: str, money: str) -> list[Piece]:
     return pieces
 
 
+_SACCOS = [name for name in _INSTITUTIONS if name.endswith("Sacco")]
+
+
+def _sacco(g: _Gen, out: bool, cur: str, money: str) -> list[Piece]:
+    """Sacco alerts: a deposit into the member's account, or a loan repayment out of it. The
+    Sacco is the counterparty; a loan balance is not the account balance."""
+    sacco = g.pick(_SACCOS)
+    account = g.pick([f"{g.digits(4)}***{g.digits(2)}", f"No. {g.digits(6)}", g.digits(10)])
+    greeting = g.pick(["Dear Member,", "Dear Member", f"Dear {g.pick(_FIRST).title()},"])
+    pieces: list[Piece] = [(greeting, Field.OTHER)]
+    deducted = out and g.chance(0.5)
+    if deducted:
+        pieces += [
+            (cur + g.money(money, 500, 60_000), Field.AMOUNT),
+            ("has been deducted from your account", Field.OTHER),
+            (account, Field.OTHER),
+            ("for loan repayment to", Field.OTHER),
+            (sacco, Field.COUNTERPARTY),
+        ]
+    elif out:
+        pieces += [
+            ("your loan repayment of", Field.OTHER),
+            (cur + g.money(money, 500, 60_000), Field.AMOUNT),
+            ("to", Field.OTHER),
+            (sacco, Field.COUNTERPARTY),
+            ("has been received", Field.OTHER),
+        ]
+    else:
+        pieces += [
+            (g.pick(["your deposit of", "your savings deposit of"]), Field.OTHER),
+            (cur + g.money(money, 100, 100_000), Field.AMOUNT),
+            ("to", Field.OTHER),
+            (sacco, Field.COUNTERPARTY),
+            ("account", Field.OTHER),
+            (account, Field.OTHER),
+            ("has been received", Field.OTHER),
+        ]
+    pieces += [("on", Field.OTHER), (g.date(g.pick(["dmy4", "words"])), Field.DATE)]
+    if g.chance(0.7):
+        pieces += [("at", Field.OTHER), (g.time(g.pick(["24h", "12h"])), Field.TIME)]
+    pieces += [
+        (".", Field.OTHER),
+        (g.pick(["Ref:", "Receipt No."]), Field.OTHER),
+        (_receipt(g), Field.REFERENCE),
+        (".", Field.OTHER),
+    ]
+    if out and g.chance(0.8):
+        pieces += [
+            ("Loan balance:", Field.OTHER),
+            (cur + g.money(money, 1_000, 900_000), Field.OTHER),
+            (".", Field.OTHER),
+        ]
+    # A repayment paid in from elsewhere leaves the savings balance alone, so it is not shown.
+    if not out or deducted:
+        pieces += [
+            (g.pick(["Your new balance is", "Savings balance:"]), Field.OTHER),
+            (cur + g.money(money, 100, 900_000), Field.BALANCE),
+            (".", Field.OTHER),
+        ]
+    if g.chance(0.4):
+        thanks = ["Thank you for repaying on time."] if out else ["Thank you for saving with us."]
+        pieces.append((g.pick([*thanks, "Keep saving."]), Field.OTHER))
+    return pieces
+
+
 _REAL_LAYOUTS: dict[str, Callable[[_Gen, bool, str, str], list[Piece]]] = {
     "wallet": _wallet,
     "transaction-of": _transaction_of,
     "code-first": _code_first,
+    "sacco": _sacco,
 }
 
 
 def _real_layout(g: _Gen, layout: str) -> tuple[list[Piece], Kind, str]:
     out = g.chance(0.6)
-    cur = {"wallet": "Ksh", "transaction-of": "Kshs. ", "code-first": "KES "}[layout]
+    cur = {"wallet": "Ksh", "transaction-of": "Kshs. ", "code-first": "KES ", "sacco": "KES "}[
+        layout
+    ]
     money = {"transaction-of": "plain1"}.get(layout, "gc")
     pieces = _REAL_LAYOUTS[layout](g, out, cur, money)
     if layout == "wallet" and g.chance(0.5):
