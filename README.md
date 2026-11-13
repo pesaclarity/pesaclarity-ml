@@ -82,6 +82,45 @@ messages will score lower.
 [docs/READER-EXAMPLES.md](docs/READER-EXAMPLES.md) shows sample messages for each layout with their
 fields marked.
 
+## Ask
+
+Ask answers questions about the person's own money in plain words, on the phone: "how much did
+I spend on food last month?", "nimetumia pesa ngapi kwa fare wiki hii", "what sells best?". Two
+small models and the app's own database lookups answer; nothing leaves the phone.
+
+- The **ask reader** reads a question into one of 30 intents (spent, sent to, bills due,
+  safe to spend, sales, low stock, follow-ups such as "and only Naivas?", greetings, out of
+  scope, ...) and marks the words that name a category, payee, period, item, account or
+  amount. Its input is the message reader's encoding unchanged, so the app's tokeniser serves
+  both. A 1-D convolutional network like the message reader's: about 190k parameters,
+  about 220 KB as TFLite.
+- The app matches the marked words against its own records, parses the dates with rules and
+  runs the lookup.
+- The **ask writer**, a small causal transformer (about 530k parameters, about 650 KB
+  as TFLite), writes a short, warm reply from fact tokens such as `kind=spent cmp=less {amount}
+  {category} {period}`. Replies hold placeholders only, never a number; the app fills them,
+  runs a checker and falls back to a fixed sentence when a reply fails it.
+
+Both train on synthetic text only: questions from about 450 templates with Kenyan English,
+Sheng and Swahili wording, typos and no punctuation; replies combined from about 1,000
+hand-written fragments. [docs/ASK.md](docs/ASK.md) is the spec the app implements, with
+conformance cases in [`ask_examples.v1.json`](src/akili/resources/ask_examples.v1.json).
+
+```sh
+uv run akili ask-reader --out artefacts/ask-reader   # train, score unseen templates, export
+uv run akili ask-writer --out artefacts/ask-writer   # train, sample and check replies, export
+uv run akili ask-examples                            # regenerate the app's conformance cases
+```
+
+`ask-reader-report.json` holds the scores when a fifth of every intent's templates is left
+out of training, in five folds: intent accuracy is about 0.85 on those unseen phrasings and slot
+F1 about 0.81 (period 0.87, payee 0.82, category 0.76; items, accounts and amount filters are
+weaker), against 0.97 and 0.90 on phrasings it was trained on. It reads 66 of the 68
+hand-written questions in the conformance file right. `ask-writer-report.json` samples 2,000
+replies at temperature 0.8: about 99% pass the checker (the rest fall back to the fixed
+sentence), and the same facts give a different reply about two times in three. Real questions
+will score lower; the app falls back to "Sorry, I did not get that" when the reader is unsure.
+
 ## Configs and tracks
 
 | Config | What it runs |
@@ -129,6 +168,7 @@ tighter PLD accountant's epsilon (`epsilon_pld`) next to the RDP one the gate ch
 
 ```text
 configs/                  experiment configs (YAML, validated by pydantic)
+docs/ASK.md               Ask reader and writer spec for the app
 docs/FEATURES.md          feature pipeline spec for the app
 docs/PRIVACY-AUDIT.md     membership-inference audit: running it, reading it
 docs/RELEASE-CHECKLIST.md release conditions for any model
@@ -138,6 +178,8 @@ src/akili/
   features.py             feature extraction shared with the app
   synthetic.py            fake transactions for tests and smoke training
   vectors.py              feature test vectors (`akili vectors`)
+  reader/                 the message reader: tokens, synthetic messages, training
+  ask/                    Ask: questions, replies, reader and writer training, examples
   model.py                the Keras categoriser            [train]
   train/                  centralised and DP-SGD training   [train]
   export/                 TFLite export and size budget

@@ -1,5 +1,5 @@
-"""Command line: ``akili synth | vectors | reader-vectors | reader-examples | reader | epsilon |
-ledger | gate | train | audit | simulate``."""
+"""Command line: ``akili synth | vectors | reader-vectors | reader-examples | reader |
+ask-examples | ask-reader | ask-writer | epsilon | ledger | gate | train | audit | simulate``."""
 
 from __future__ import annotations
 
@@ -88,6 +88,81 @@ def _reader(args: argparse.Namespace) -> int:
         print(f"  kind accuracy {unseen['mean_kind_accuracy']:.3f}")
     print(f"reader {report['model_size_bytes']} bytes at {Path(args.out) / 'reader.tflite'}")
     return 0
+
+
+def _ask_examples(args: argparse.Namespace) -> int:
+    from akili.ask import examples
+
+    path = Path(args.out) if args.out else examples.default_path()
+    if args.check:
+        current = path.read_text(encoding="utf-8") if path.exists() else ""
+        if current != examples.render(examples.build_examples()):
+            print(f"{path} is out of date; run `akili ask-examples`", file=sys.stderr)
+            return 1
+        print(f"{path} matches the ask code")
+        return 0
+    print(f"wrote ask conformance examples to {examples.write_examples(path)}")
+    return 0
+
+
+def _ask_reader(args: argparse.Namespace) -> int:
+    from akili.ask.reader import MODEL_FILE, AskReaderConfig, train_ask_reader
+
+    cfg = AskReaderConfig(questions=args.questions, epochs=args.epochs, seed=args.seed)
+    report = train_ask_reader(cfg, args.out, evaluate=not args.skip_evaluation)
+    unseen = report["unseen_templates"]
+    if unseen is not None:
+        print(f"unseen templates: intent accuracy {unseen['mean_intent_accuracy']:.3f}")
+        for name, f1 in unseen["mean_slot_f1"].items():
+            print(f"  {name:<9} F1 {f1:.3f}")
+    print(
+        f"ask reader {report['parameters']} parameters, {report['model_size_bytes']} bytes at "
+        f"{Path(args.out) / MODEL_FILE}"
+    )
+    return 0
+
+
+def _ask_writer(args: argparse.Namespace) -> int:
+    from akili.ask.writer import MODEL_FILE, AskWriterConfig, train_ask_writer
+
+    cfg = AskWriterConfig(examples=args.examples, epochs=args.epochs, seed=args.seed)
+    report = train_ask_writer(cfg, args.out, evaluate=not args.skip_evaluation)
+    sampled = report.get("keras_sampling")
+    if sampled is not None:
+        print(
+            f"checker pass rate {sampled['checker_pass_rate']:.3f} at T={sampled['temperature']}; "
+            f"distinct replies {sampled['distinct_reply_ratio']:.2f}"
+        )
+        print(f"TFLite pass rate {report['tflite_sampling']['checker_pass_rate']:.3f}")
+    print(
+        f"ask writer {report['parameters']} parameters, {report['model_size_bytes']} bytes at "
+        f"{Path(args.out) / MODEL_FILE}"
+    )
+    return 0
+
+
+def _add_ask_commands(sub: Any) -> None:
+    """``ask-examples``, ``ask-reader`` and ``ask-writer``."""
+    p = sub.add_parser("ask-examples", help="regenerate the Ask conformance examples for the app")
+    p.add_argument("--out")
+    p.add_argument("--check", action="store_true")
+    p.set_defaults(func=_ask_examples)
+
+    p = sub.add_parser("ask-reader", help="train and export the ask reader [train]")
+    p.add_argument("--out", default="artefacts/ask-reader")
+    p.add_argument("--questions", type=int, default=40_000)
+    p.add_argument("--epochs", type=int, default=8)
+    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--skip-evaluation", action="store_true")
+    p.set_defaults(func=_ask_reader)
+
+    p = sub.add_parser("ask-writer", help="train and export the ask writer [train]")
+    p.add_argument("--out", default="artefacts/ask-writer")
+    p.add_argument("--examples", type=int, default=60_000)
+    p.add_argument("--epochs", type=int, default=8)
+    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--skip-evaluation", action="store_true")
+    p.set_defaults(func=_ask_writer)
 
 
 def _estimated_eligible_clients(cfg: ExperimentConfig) -> int:
@@ -354,6 +429,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--skip-evaluation", action="store_true")
     p.set_defaults(func=_reader)
 
+    _add_ask_commands(sub)
     _add_privacy_commands(sub)
 
     p = sub.add_parser("train", help="centralised training on synthetic data [train]")
