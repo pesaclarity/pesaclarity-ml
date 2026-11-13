@@ -12,18 +12,20 @@ uv sync                 # core only, fast
 uv sync --all-extras    # with TensorFlow, MLflow and Flower
 ```
 
-## Before you push
+## Checks run on your machine
+
+There is no CI on GitHub; the checks run locally. Once per clone, enable the git hook:
 
 ```sh
-uv run ruff format .
-uv run ruff check .
-uv run mypy
-uv run pytest
+tool/setup-hooks
 ```
 
-If you touch training, export or the federated client, also run the smoke configs with the extras
-installed (`akili train --config configs/smoke.yaml`, `akili simulate --config
-configs/federated-smoke.yaml`).
+The pre-push hook checks that the titles of the commits you push follow Conventional Commits
+(see below), then runs `tool/check`: ruff format and lint, mypy, all tests with the extras, the
+smoke training, DP-SGD, federated and quick-audit runs, and finally mypy and the tests on the
+core install alone. `tool/check --fast` (format, lint, types and the tests that skip TensorFlow)
+is there for running by hand while you work. In an emergency, `git push --no-verify` skips the
+hook; run `tool/check` before the pull request is merged.
 
 ## Rules specific to this repository
 
@@ -45,9 +47,10 @@ configs/federated-smoke.yaml`).
 ## Commits and pull requests
 
 - Small, focused pull requests against `dev`: one topic each, with tests for new behaviour and
-  green CI. `main` takes only `dev` and release pull requests (see
+  a passing `tool/check`. `main` takes only `dev` and release pull requests (see
   [Branches and releases](README.md#branches-and-releases)).
 - Pull request titles follow [Conventional Commits](https://www.conventionalcommits.org):
   `feat: add a Sacco layout`, `fix: …`, `feat!: …` for a breaking change. They set the next
   version and the changelog.
-- Commit messages: one short line in the imperative, e.g. "Add a Sacco layout".
+- Commit messages: one short line in the same form, e.g. `feat: add a Sacco layout`. The
+  pre-push hook checks them (`tool/commit-titles origin/dev..HEAD` checks by hand).

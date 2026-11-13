@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Runs before every git push: checks the titles of the commits being pushed,
+# then the full tool/check. Emergency bypass: git push --no-verify
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+zero=0000000000000000000000000000000000000000
+# git sends one line per ref: <local ref> <local sha> <remote ref> <remote sha>
+while read -r _ local_sha _ remote_sha; do
+  case "$local_sha" in *[!0]*) ;; *) continue ;; esac   # deleting a branch
+  if [ "$remote_sha" = "$zero" ] || ! git cat-file -e "$remote_sha" 2>/dev/null; then
+    # New branch: check commits that are not on any remote branch yet.
+    tool/commit-titles "$local_sha" --not --remotes
+  else
+    tool/commit-titles "$remote_sha..$local_sha"
+  fi
+done
+
+tool/check

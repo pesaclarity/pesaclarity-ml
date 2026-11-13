@@ -152,10 +152,13 @@ tests/                    pytest; test_tf_* need the [train] extra
 ## Testing
 
 ```sh
-uv run ruff format --check . && uv run ruff check . && uv run mypy && uv run pytest
+tool/check          # everything, with all extras: lint, types, all tests, smoke runs, then the core install
+tool/check --fast   # format, lint, types and the tests that skip TensorFlow
+tool/setup-hooks    # once: the pre-push hook runs tool/check
 ```
 
-CI runs this on the core install, then again with `--all-extras` plus the smoke training runs.
+Checks run on your machine, not on GitHub; GitHub only runs releases. See
+[CONTRIBUTING.md](CONTRIBUTING.md#checks-run-on-your-machine).
 
 ## Branches and releases
 
@@ -164,8 +167,8 @@ changes.
 
 1. Pull requests go to `dev`, with a [Conventional Commits](https://www.conventionalcommits.org)
    title (`feat: …`, `fix: …`, `feat!: …` for a breaking change; `docs`, `test`, `ci`, `chore`,
-   `refactor`, `build`, `perf`, `style`, `revert` too). The `PR title` check enforces it, and
-   squash merges keep the title as the commit message. CI runs on every push to `dev`.
+   `refactor`, `build`, `perf`, `style`, `revert` too). The pre-push hook checks your commit
+   titles, and squash merges keep the title as the commit message.
 2. When `dev` is ready, open a pull request from `dev` to `main`. The `Release gate` check allows
    only `dev` (or the release pull request) into `main`, and its QA job waits for a reviewer in
    the `qa` environment. Merge it with a merge commit, not a squash, so each change keeps its own
