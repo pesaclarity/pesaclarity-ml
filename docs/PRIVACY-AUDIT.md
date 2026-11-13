@@ -59,8 +59,8 @@ uv run akili audit --config configs/audit-no-dp.yaml --config configs/audit-dp-s
 uv run akili audit --config configs/dp-sgd.yaml --shadow-models 8
 ```
 
-`akili audit` exits 1 if any audited model fails its limits (`--report-only` always exits 0; CI
-uses it for the quick run). Each run writes `artefacts/<name>/audit-report.json` and logs to
+`akili audit` exits 1 if any audited model fails its limits (`--report-only` always exits 0;
+`tool/check` uses it for the quick run). Each run writes `artefacts/<name>/audit-report.json` and logs to
 MLflow:
 
 | MLflow | Meaning |

@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Check that commit titles follow Conventional Commits (this replaced the
+# "PR title" workflow). Release notes and versions come from these titles.
+#
+#   tool/commit-titles <rev-range>     e.g. tool/commit-titles origin/dev..HEAD
+#
+# Merge commits are skipped. The pre-push hook calls this for pushed commits.
+set -euo pipefail
+
+types="feat|fix|perf|refactor|docs|test|build|ci|chore|revert|style"
+pattern="^($types)(\([a-z0-9-]+\))?!?: [^ ].*$"
+
+bad=0
+while IFS= read -r line; do
+  sha=${line%% *} title=${line#* }
+  if [[ ! "$title" =~ $pattern ]]; then
+    echo "Bad commit title: ${sha:0:9} $title" >&2
+    bad=1
+  fi
+done < <(git log --no-merges --format='%H %s' "$@")
+
+if [ "$bad" -ne 0 ]; then
+  echo "Start each title with a type, e.g. 'feat: add debts screen', 'fix: keep footers out of rows'" >&2
+  echo "or 'feat!: change the backup format'. Types: ${types//|/, }." >&2
+  echo "Reword with 'git commit --amend' (last commit) or 'git rebase -i'." >&2
+  exit 1
+fi

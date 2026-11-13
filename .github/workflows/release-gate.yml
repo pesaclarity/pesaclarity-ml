@@ -1,7 +1,7 @@
 name: Release gate
 
 # main is what model releases are built from. Changes collect on dev, and dev
-# goes to main only through a pull request that passes CI and QA. release-please's own release
+# goes to main only through a pull request that QA approves. release-please's own release
 # pull request (version bump and changelog) is the one other way in.
 on:
   pull_request:
