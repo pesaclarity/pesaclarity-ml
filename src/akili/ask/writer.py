@@ -68,8 +68,8 @@ TOKEN_ID: dict[str, int] = {t: i for i, t in enumerate(VOCAB)}
 
 @dataclass(frozen=True, slots=True)
 class AskWriterConfig:
-    examples: int = 60_000
-    epochs: int = 8
+    examples: int = 80_000
+    epochs: int = 10
     batch_size: int = 64
     learning_rate: float = 0.002
     dim: int = 128
@@ -275,10 +275,19 @@ def filled(reply: list[str], f: Facts, rng: np.random.Generator) -> str:
     }
     if "list" in values and f.kind in lists:
         values["list"] = lists[f.kind]
+    if "list" in values:
+        # A single name given with a list is the list's first (largest) entry.
+        first = values["list"].split(",")[0].split(" and ")[0]
+        for p in ("payee", "name", "item", "category"):
+            if p in values:
+                values[p] = first
     if "count=one" in f.flags:
         values["count"] = "1"
         if "list" in values:
             values["list"] = values["list"].split(",")[0].split(" and ")[0]
+            for p in ("payee", "name", "item", "category"):
+                if p in values:
+                    values[p] = values["list"]
     return capitalise(fill(detokenise(reply), values))
 
 
@@ -291,6 +300,11 @@ def evaluate_writer(cfg: AskWriterConfig, logits_fn: Any, seed: int) -> dict[str
     per_kind: dict[str, list[bool]] = {}
     for (ok, _), f in zip(results, facts_list, strict=True):
         per_kind.setdefault(f.kind, []).append(ok)
+
+    # The kind with the most optional facts, scored on its own.
+    spent_facts = random_facts(500, seed=seed + 2, kind="spent")
+    spent_replies = sample(logits_fn, spent_facts, cfg.temperature, rng)
+    spent_ok = [checked(r, f)[0] for r, f in zip(spent_replies, spent_facts, strict=True)]
 
     # Variety: many samples for the same facts.
     variety_facts = random_facts(40, seed=seed + 1)
@@ -320,6 +334,8 @@ def evaluate_writer(cfg: AskWriterConfig, logits_fn: Any, seed: int) -> dict[str
         "temperature": cfg.temperature,
         "checker_pass_rate": round(float(np.mean([ok for ok, _ in results])), 4),
         "failures": dict(reasons),
+        "spent_pass_rate": round(float(np.mean(spent_ok)), 4),
+        "spent_samples": len(spent_facts),
         "per_kind_pass_rate": {k: round(float(np.mean(v)), 4) for k, v in sorted(per_kind.items())},
         "distinct_reply_ratio": round(float(np.mean(ratios)), 4),
         "distinct_note": f"unique replies among {repeats} samples of the same facts, averaged "

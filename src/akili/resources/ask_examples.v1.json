@@ -41,7 +41,7 @@
   "account",
   "amount"
  ],
- "vocab_size": 472,
+ "vocab_size": 473,
  "questions": [
   {
    "question": "How much did I spend on food last month?",

@@ -131,7 +131,8 @@ def _ask_writer(args: argparse.Namespace) -> int:
     if sampled is not None:
         print(
             f"checker pass rate {sampled['checker_pass_rate']:.3f} at T={sampled['temperature']}; "
-            f"distinct replies {sampled['distinct_reply_ratio']:.2f}"
+            f"distinct replies {sampled['distinct_reply_ratio']:.2f}; "
+            f"spent {sampled['spent_pass_rate']:.3f}"
         )
         print(f"TFLite pass rate {report['tflite_sampling']['checker_pass_rate']:.3f}")
     print(
@@ -158,8 +159,8 @@ def _add_ask_commands(sub: Any) -> None:
 
     p = sub.add_parser("ask-writer", help="train and export the ask writer [train]")
     p.add_argument("--out", default="artefacts/ask-writer")
-    p.add_argument("--examples", type=int, default=60_000)
-    p.add_argument("--epochs", type=int, default=8)
+    p.add_argument("--examples", type=int, default=80_000)
+    p.add_argument("--epochs", type=int, default=10)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--skip-evaluation", action="store_true")
     p.set_defaults(func=_ask_writer)

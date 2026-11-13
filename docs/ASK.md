@@ -72,6 +72,11 @@ shape (rank 2 is the intent, rank 3 the slots), as with the message reader.
 | 28 | `help` | what can you do |
 | 29 | `out_of_scope` | should I buy bitcoin / tell me a joke |
 
+`lent` and `who_owes_me` are both "who owes me": the reader sends questions that name
+customers, credit, the shop or stock to `who_owes_me` and personal ones, including a bare "who
+owes me money?", to `lent`. An app whose user keeps a business may answer either from both
+records.
+
 `refine` is a follow-up with no verb of its own: the app keeps the previous question's intent
 and slots and replaces (or, with "excluding", removes) the slots the follow-up names.
 
@@ -113,7 +118,7 @@ position. The order is fixed:
 | 63-67 | punctuation `.` `,` `!` `?` `:` |
 | 68- | lower-case words, sorted (letters and `'` only, such as `you're`) |
 
-Version 1 has 472 tokens.
+Version 1 has 473 tokens.
 
 ### Facts
 
@@ -196,6 +201,10 @@ fallback sentence:
 | `bye` | - | `{name}` | - | Goodbye. |
 | `help` | - | - | - | Ask me things like: how much did I spend on food last month? |
 
+When a single name (`{payee}`, `{name}`, `{item}` or `{category}`) is given together with
+`{list}`, it must be the first, largest entry of that list: replies such as "you owe {list}.
+The biggest is with {payee}." rely on it.
+
 Training also follows these rules, so give the writer facts like them: `{prev_amount}` only with
 `{prev_period}`; `{change}` only with `cmp=more` or `cmp=less`; `cmp=*` on `spent`, `received`,
 `sent_to`, `received_from`, `sales`, `profit` and `fees` only with `{prev_period}`. The manifest
@@ -205,7 +214,7 @@ repeats the table as `required`, `allowed_placeholders`, `allowed_flags` and `fa
 
 - Input `tokens`: `int32[1, L]` with **L = 64**: the fact ids, then `<sep>` (2), then the reply
   ids written so far, then `<pad>` (0) to the end.
-- Output `logits`: `float32[1, L, V]` (V = 472). Row `i` is the next-token distribution after
+- Output `logits`: `float32[1, L, V]` (V = 473). Row `i` is the next-token distribution after
   position `i`. The model is causal: row `i` only depends on positions `0..i`, so padding after
   the last real token never changes it.
 

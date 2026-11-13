@@ -101,7 +101,7 @@ small models and the app's own database lookups answer; nothing leaves the phone
   {category} {period}`. Replies hold placeholders only, never a number; the app fills them,
   runs a checker and falls back to a fixed sentence when a reply fails it.
 
-Both train on synthetic text only: questions from about 450 templates with Kenyan English,
+Both train on synthetic text only: questions from about 625 templates with Kenyan English,
 Sheng and Swahili wording, typos and no punctuation; replies combined from about 1,000
 hand-written fragments. [docs/ASK.md](docs/ASK.md) is the spec the app implements, with
 conformance cases in [`ask_examples.v1.json`](src/akili/resources/ask_examples.v1.json).
@@ -113,12 +113,15 @@ uv run akili ask-examples                            # regenerate the app's conf
 ```
 
 `ask-reader-report.json` holds the scores when a fifth of every intent's templates is left
-out of training, in five folds: intent accuracy is about 0.85 on those unseen phrasings and slot
-F1 about 0.81 (period 0.87, payee 0.82, category 0.76; items, accounts and amount filters are
-weaker), against 0.97 and 0.90 on phrasings it was trained on. It reads 66 of the 68
-hand-written questions in the conformance file right. `ask-writer-report.json` samples 2,000
-replies at temperature 0.8: about 99% pass the checker (the rest fall back to the fixed
-sentence), and the same facts give a different reply about two times in three. Real questions
+out of training, in five folds: intent accuracy is about 0.83 on those unseen phrasings (folds
+0.80 to 0.87) and slot F1 about 0.83 (period 0.88, payee 0.83, item 0.80, category 0.77,
+account 0.69; amount filters are weak at 0.47), against 0.96 and 0.89 on phrasings it was
+trained on. Many held-out templates are Sheng or Swahili phrasings with words no other template
+uses, which no model can read from the rest; out of scope, personal loans and plain spending
+questions are the weak spots. It reads all 68 hand-written questions in the conformance file
+right. `ask-writer-report.json` samples 2,000 replies at temperature 0.8: about 99.4% pass the
+checker (98.4% for `spent`, scored on its own; the rest fall back to the fixed sentence), and
+the same facts give a different reply about seven times in ten. Real questions
 will score lower; the app falls back to "Sorry, I did not get that" when the reader is unsure.
 
 ## Configs and tracks

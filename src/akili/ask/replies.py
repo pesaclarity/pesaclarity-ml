@@ -810,9 +810,9 @@ _DEBT_TAIL = [
     "the biggest is with {payee}.",
     "the next payment is on {date}.",
     "the next repayment is in {days} days.",
-    "you owe to {list}.",
+    "you owe {list}.",
     "@!count=one that is {count} loans.",
-    "@!count=one across {list}.",
+    "@!count=one spread across {list}.",
 ]
 _LENT_TAIL = [
     "{payee} owes the most.",
@@ -1122,12 +1122,16 @@ class Example:
 
 
 def generate(n: int, seed: int = 0) -> list[Example]:
-    """``n`` (facts, reply) pairs, kinds uniform. Every reply passes :func:`check_reply`."""
+    """``n`` (facts, reply) pairs, kinds weighted by how many optional facts they take. Every
+    reply passes :func:`check_reply`."""
     g = _Gen(np.random.default_rng(seed))
     kinds = list(KINDS)
+    # Kinds with more optional facts have more combinations to learn, so they get more examples.
+    weights = np.array([1.0 + 0.2 * len(KINDS[k].optional) for k in kinds])
+    weights /= weights.sum()
     out = []
     for _ in range(n):
-        f = sample_facts(g, g.pick(kinds))
+        f = sample_facts(g, kinds[int(g.rng.choice(len(kinds), p=weights))])
         reply = write_reply(g, f)
         check = check_reply(detokenise(reply), f.kind, f.given)
         if not check.ok:
@@ -1136,10 +1140,11 @@ def generate(n: int, seed: int = 0) -> list[Example]:
     return out
 
 
-def random_facts(n: int, seed: int = 0) -> list[Facts]:
+def random_facts(n: int, seed: int = 0, kind: str | None = None) -> list[Facts]:
+    """Facts with kinds uniform, or all of ``kind``."""
     g = _Gen(np.random.default_rng(seed))
     kinds = list(KINDS)
-    return [sample_facts(g, g.pick(kinds)) for _ in range(n)]
+    return [sample_facts(g, kind or g.pick(kinds)) for _ in range(n)]
 
 
 def fragment_count() -> int:
