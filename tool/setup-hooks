@@ -1,0 +1,6 @@
+#!/bin/sh
+# Use the hooks versioned in .githooks/ (safe to run again).
+set -eu
+cd "$(dirname "$0")/.."
+git config core.hooksPath .githooks
+echo "Git hooks enabled: pre-push runs tool/check. Bypass in an emergency with --no-verify."
