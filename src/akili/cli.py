@@ -1,5 +1,6 @@
 """Command line: ``akili synth | vectors | reader-vectors | reader-examples | reader |
-ask-examples | ask-reader | ask-writer | epsilon | ledger | gate | train | audit | simulate``."""
+ask-examples | ask-reader | ask-reader-probe | ask-writer | epsilon | ledger | gate | train |
+audit | simulate``."""
 
 from __future__ import annotations
 
@@ -115,10 +116,30 @@ def _ask_reader(args: argparse.Namespace) -> int:
         print(f"unseen templates: intent accuracy {unseen['mean_intent_accuracy']:.3f}")
         for name, f1 in unseen["mean_slot_f1"].items():
             print(f"  {name:<9} F1 {f1:.3f}")
+    _print_probes(report)
     print(
         f"ask reader {report['parameters']} parameters, {report['model_size_bytes']} bytes at "
         f"{Path(args.out) / MODEL_FILE}"
     )
+    return 0
+
+
+def _print_probes(report: dict[str, Any]) -> None:
+    for key in ("hard_held_out", "app_questions"):
+        p = report[key]
+        print(
+            f"{key}: intent accuracy {p['intent_accuracy']:.3f}, "
+            f"payee/account exact {p['name_exact_match']:.3f} ({p['named_questions']} named)"
+        )
+
+
+def _ask_reader_probe(args: argparse.Namespace) -> int:
+    from akili.ask.reader import probe_scores
+
+    report = probe_scores(Path(args.model))
+    _print_probes(report)
+    if args.out:
+        Path(args.out).write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     return 0
 
 
@@ -151,11 +172,18 @@ def _add_ask_commands(sub: Any) -> None:
 
     p = sub.add_parser("ask-reader", help="train and export the ask reader [train]")
     p.add_argument("--out", default="artefacts/ask-reader")
-    p.add_argument("--questions", type=int, default=40_000)
-    p.add_argument("--epochs", type=int, default=8)
+    p.add_argument("--questions", type=int, default=120_000)
+    p.add_argument("--epochs", type=int, default=20)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--skip-evaluation", action="store_true")
     p.set_defaults(func=_ask_reader)
+
+    p = sub.add_parser(
+        "ask-reader-probe", help="score an ask-reader.tflite on the hard and app questions [train]"
+    )
+    p.add_argument("--model", default="artefacts/ask-reader/ask-reader.tflite")
+    p.add_argument("--out", help="write the scores and readings as JSON")
+    p.set_defaults(func=_ask_reader_probe)
 
     p = sub.add_parser("ask-writer", help="train and export the ask writer [train]")
     p.add_argument("--out", default="artefacts/ask-writer")

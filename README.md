@@ -92,8 +92,8 @@ small models and the app's own database lookups answer; nothing leaves the phone
   safe to spend, sales, low stock, follow-ups such as "and only Naivas?", greetings, out of
   scope, ...) and marks the words that name a category, payee, period, item, account or
   amount. Its input is the message reader's encoding unchanged, so the app's tokeniser serves
-  both. A 1-D convolutional network like the message reader's: about 190k parameters,
-  about 220 KB as TFLite.
+  both. A 1-D convolutional network like the message reader's: about 240k parameters,
+  about 270 KB as TFLite (budget 400 KB).
 - The app matches the marked words against its own records, parses the dates with rules and
   runs the lookup.
 - The **ask writer**, a small causal transformer (about 530k parameters, about 650 KB
@@ -101,25 +101,29 @@ small models and the app's own database lookups answer; nothing leaves the phone
   {category} {period}`. Replies hold placeholders only, never a number; the app fills them,
   runs a checker and falls back to a fixed sentence when a reply fails it.
 
-Both train on synthetic text only: questions from about 625 templates with Kenyan English,
-Sheng and Swahili wording, typos and no punctuation; replies combined from about 1,000
-hand-written fragments. [docs/ASK.md](docs/ASK.md) is the spec the app implements, with
+Both train on synthetic text only: questions from about 720 templates with Kenyan English,
+Sheng and Swahili wording, typos and no punctuation, and thousands of invented payee and
+account names; replies combined from about 1,000 hand-written fragments. [docs/ASK.md](docs/ASK.md) is the spec the app implements, with
 conformance cases in [`ask_examples.v1.json`](src/akili/resources/ask_examples.v1.json).
 
 ```sh
-uv run akili ask-reader --out artefacts/ask-reader   # train, score unseen templates, export
+uv run akili ask-reader --out artefacts/ask-reader   # train, export, score unseen templates
+uv run akili ask-reader-probe --model path/to/ask-reader.tflite  # score any exported reader
 uv run akili ask-writer --out artefacts/ask-writer   # train, sample and check replies, export
 uv run akili ask-examples                            # regenerate the app's conformance cases
 ```
 
-`ask-reader-report.json` holds the scores when a fifth of every intent's templates is left
-out of training, in five folds: intent accuracy is about 0.83 on those unseen phrasings (folds
-0.80 to 0.87) and slot F1 about 0.83 (period 0.88, payee 0.83, item 0.80, category 0.77,
-account 0.69; amount filters are weak at 0.47), against 0.96 and 0.89 on phrasings it was
-trained on. Many held-out templates are Sheng or Swahili phrasings with words no other template
-uses, which no model can read from the rest; out of scope, personal loans and plain spending
-questions are the weak spots. It reads all 68 hand-written questions in the conformance file
-right. `ask-writer-report.json` samples 2,000 replies at temperature 0.8: about 99.4% pass the
+`ask-reader-report.json` holds the scores ([docs/ASK.md](docs/ASK.md#training-and-scores)
+has the table, against v1). When a fifth of every intent's templates is left out of training,
+in five folds, intent accuracy on the unseen version 1 phrasings is about 0.87 (v1: 0.83)
+and slot F1 about 0.85 (v1: 0.83; payee, category and item lower, period, account and amount
+higher). Many held-out templates are Sheng or Swahili phrasings with
+words no other template uses, which no model can read from the rest. On a hard held-out set of
+counts, sums for one payee, money in from someone, money in and account balances, with templates
+and names training never sees, intent accuracy is 0.96 and the payee or account is marked
+exactly in 0.93 of the questions naming one (v1: 0.64 and 0.11); on the questions in the app's
+tests, 0.95 and 0.96 (v1: 0.82 and 0.35). It reads the intent of 67 of the 68 hand-written
+questions in the conformance file right. `ask-writer-report.json` samples 2,000 replies at temperature 0.8: about 99.4% pass the
 checker (98.4% for `spent`, scored on its own; the rest fall back to the fixed sentence), and
 the same facts give a different reply about seven times in ten. Real questions
 will score lower; the app falls back to "Sorry, I did not get that" when the reader is unsure.
