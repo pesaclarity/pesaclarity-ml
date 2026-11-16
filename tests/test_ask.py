@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from akili._optional import has_module
-from akili.ask import examples, questions, replies
+from akili.ask import examples, names, probes, questions, replies
 from akili.ask.schema import (
     ASK_INTENTS,
     FLAG_GROUPS,
@@ -58,6 +58,67 @@ def test_held_out_templates_are_never_generated() -> None:
     held = questions.folds(5)[0]
     train = set(questions.template_ids()) - held
     assert all(q.template in train for q in questions.generate(500, seed=2, templates=train))
+
+
+def test_version_1_folds_and_questions_are_unchanged() -> None:
+    # The fold assignment version 1 had (one permutation per intent, in intent order), so the
+    # held-out score compares across versions.
+    rng = np.random.default_rng(0)
+    old: list[set[str]] = [set() for _ in range(5)]
+    for intent in ASK_INTENTS:
+        for j, i in enumerate(rng.permutation(questions.V1_TEMPLATE_COUNTS[intent])):
+            old[j % 5].add(f"{intent}:{int(i)}")
+    v1 = questions.v1_template_ids()
+    assert [f & v1 for f in questions.folds(5)] == old
+    assert len(v1) == 626 < len(questions.template_ids())
+    # Without a name pool, version 1 templates use the version 1 lists only.
+    for q in questions.generate(300, seed=4, templates=v1):
+        assert q.template in v1
+
+
+def test_invented_names_are_varied_and_kept_apart() -> None:
+    rng = np.random.default_rng(0)
+    train = {names.TRAIN.name(rng).lower() for _ in range(3000)}
+    held = {names.HELD_OUT.name(rng).lower() for _ in range(3000)}
+    assert len(train) > 2000
+    assert len(held) > 2000
+    assert not train & held
+    assert not (train | held) & names.EXCLUDED
+    assert all(1 <= len(n.split()) <= 4 for n in train | held)
+    train_words = {w for n in train for w in n.split()}
+    held_words = {w.lower() for w in names.HELD_OUT.words}
+    assert not train_words & held_words
+    assert not train_words & names.HELD_ONLY_WORDS
+    # The app's own test names are never generated, so its questions stay held out.
+    app_names = {
+        s["text"].lower()
+        for _, marked in probes._APP
+        for s in examples.parse_marked(marked)[1]
+        if s["slot"] == "payee"
+    }
+    assert not app_names & train
+
+
+def test_probe_sets() -> None:
+    hard = probes.hard_questions(500, seed=3)
+    assert {g for g, _ in hard} == {"count", "sum", "from", "in", "balance", "negative"}
+    templates = {t for ts in questions.TEMPLATES.values() for t in ts}
+    assert not {t for _, _, t in probes.HARD_TEMPLATES} & templates
+    for _, q in hard:
+        assert len(q.slots) == len(tokenise(q.text))
+    app = probes.app_questions()
+    assert len(app) > 50
+    assert all(len(q.slots) == len(tokenise(q.text)) for q in app)
+    named = [q for q in app if probes.name_spans(q.slots)]
+    assert len(named) > 40
+    perfect = np.zeros((len(app), MAX_TOKENS, len(SLOT_LABELS)))
+    intents = np.zeros((len(app), len(ASK_INTENTS)))
+    for i, q in enumerate(app):
+        perfect[i, np.arange(len(q.slots)), q.slots] = 1
+        intents[i, q.intent] = 1
+    s = probes.score_probe(app, intents, perfect, None)
+    assert s["intent_accuracy"] == 1.0
+    assert s["name_exact_match"] == 1.0
 
 
 def test_reader_input_is_the_message_reader_encoding() -> None:
@@ -178,7 +239,7 @@ def test_ask_reader_trains_and_exports(tmp_path) -> None:  # type: ignore[no-unt
     )
 
     cfg = AskReaderConfig(questions=1500, epochs=1)
-    assert build_ask_reader(cfg).count_params() <= 200_000
+    assert build_ask_reader(cfg).count_params() <= 300_000
     report = train_ask_reader(cfg, tmp_path, evaluate=False)
     manifest = json.loads((tmp_path / MANIFEST_FILE).read_text())
     assert (tmp_path / MODEL_FILE).stat().st_size == manifest["model_size_bytes"]
@@ -191,6 +252,25 @@ def test_ask_reader_trains_and_exports(tmp_path) -> None:  # type: ignore[no-unt
     assert intent.shape == (8, len(ASK_INTENTS))
     assert slots.shape == (8, MAX_TOKENS, len(SLOT_LABELS))
     np.testing.assert_allclose(intent.sum(-1), 1.0, atol=1e-3)
+    assert {"hard_held_out", "app_questions"} <= set(report)
+    assert len(report["app_questions"]["readings"]) == len(probes.app_questions())
+
+
+def test_token_swaps_leave_shapes_and_padding_alone() -> None:
+    from akili.ask.reader import AskReaderConfig, swap_tokens
+
+    x, y, _ = questions.to_arrays(questions.generate(200, seed=8, pool=names.TRAIN))
+    cfg = AskReaderConfig(name_dropout=1.0, word_dropout=0.0)
+    out = swap_tokens(x, y, cfg, np.random.default_rng(0))
+    assert (out[:, MAX_TOKENS:] == x[:, MAX_TOKENS:]).all()
+    assert (out[:, :MAX_TOKENS][y < 0] == 0).all()
+    known = {
+        encode(t.text)[0] for n in [*questions.PAYEES, *questions.ACCOUNTS] for t in tokenise(n)
+    }
+    named = np.isin(y, [SLOT_LABELS.index("payee"), SLOT_LABELS.index("account")])
+    invented = named & ~np.isin(x[:, :MAX_TOKENS], list(known))
+    assert (out[:, :MAX_TOKENS][~named] == x[:, :MAX_TOKENS][~named]).all()
+    assert (out[:, :MAX_TOKENS][invented] != x[:, :MAX_TOKENS][invented]).mean() > 0.99
 
 
 @pytest.mark.tf

@@ -8,8 +8,14 @@ phrasings the model never saw. Each intent's cue phrases also get short template
 so a held-out template is a new arrangement of known words. Questions are then roughened the way
 people type on a phone: lower case, no question mark, small typos, a "hey" or "pls".
 
-Everything is invented. Payees are well-known Kenyan chains and utilities, or common first names
-and surnames; there are no phone numbers or real messages.
+Version 2 adds templates for the phrasings the first reader got wrong in the app (counts and
+sums for one payee, "how much to X", "X sent me", money in, "<account> balance", "how often",
+and look-alikes that are out of scope), and, for training, invented payee and account names from
+:mod:`akili.ask.names` in most payee and account holes. Version 1 templates keep their ids,
+folds and, without a name pool, their exact questions, so their held-out score compares.
+
+Everything is invented. Payees are well-known Kenyan chains and utilities, common first names
+and surnames, or made-up names; there are no phone numbers or real messages.
 """
 
 from __future__ import annotations
@@ -19,6 +25,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from akili.ask import names
 from akili.ask.schema import ASK_INTENTS, SLOT_LABELS
 from akili.reader.tokens import MAX_TOKENS, encode, tokenise
 
@@ -401,6 +408,12 @@ _VALUES: dict[str, tuple[list[str], int]] = {
     "amount": (AMOUNTS, AMOUNT),
     "money": (MONEY, AMOUNT),
 }
+
+V2_SHARE = 0.4
+"""With a name pool, the share of an intent's questions drawn from its version 2 templates."""
+
+BANK_PAYEES = [b for b in names.BANKS if b != "Cash"]
+WIDE_ACCOUNTS = [*ACCOUNTS, *names.BANKS, "cash", "my cash", "CASH", "Co-operative Bank"]
 
 _P = "[{period}|]"
 
@@ -1839,6 +1852,202 @@ for _intent, _extra in _EXTRA_TEMPLATES.items():
 
 _cue_templates()
 
+# The templates above are version 1 of the generator: ml's held-out folds and their scores are
+# defined on them, so they keep their ids and fold assignment (see :func:`folds`).
+V1_TEMPLATE_COUNTS: dict[str, int] = {intent: len(TEMPLATES[intent]) for intent in ASK_INTENTS}
+
+# Version 2: the phrasings the first reader got wrong in the app, with invented names from
+# :mod:`akili.ask.names` ({name} is a made-up payee, {bank} a bank, wallet or Sacco named as the
+# payee). Counts and sums for one payee, "how much to X", money in from someone, money in,
+# "<account> balance", "how often", and questions that only look like them.
+LEXICON["paid_to"] = [
+    "pay",
+    "paid",
+    "send money to",
+    "sent money to",
+    "buy from",
+    "bought from",
+    "shop at",
+    "shopped at",
+    "go to",
+    "transact with",
+    "lipa",
+]
+LEXICON["sent_me"] = [
+    "sent me",
+    "send me",
+    "paid me",
+    "pay me",
+    "given me",
+    "give me",
+    "transferred to me",
+    "deposited for me",
+    "refunded me",
+]
+LEXICON["got_from"] = [
+    "got from",
+    "get from",
+    "received from",
+    "receive from",
+    "gotten from",
+    "was paid by",
+    "was sent by",
+    "collected from",
+]
+LEXICON["came_in"] = [
+    "came in",
+    "has come in",
+    "come in",
+    "came into my accounts",
+    "landed",
+    "was received",
+    "did i receive",
+    "have i received",
+    "did i get",
+    "did i earn",
+    "did i make",
+    "entered",
+]
+LEXICON["how_often"] = [
+    "how often",
+    "how many times",
+    "how frequently",
+    "number of times",
+    "how many payments",
+    "the number of payments",
+    "number of payments",
+    "how many transactions",
+    "mara ngapi",
+    "count of payments",
+]
+
+_HARD_TEMPLATES: dict[str, list[str]] = {
+    "count_payments": [
+        "<how_often> [did i|do i|have i] <paid_to> {name} " + _P,
+        "<how_often> [did i|do i|have i] <paid_to> {payee} " + _P,
+        "times i [paid|sent money to|bought from|went to] {name} " + _P,
+        "[number of|no of|count of|total] [payments|transactions|purchases|times] [to|at|with|for] "
+        "{name} " + _P,
+        "<how_often> [to|at] {name} " + _P,
+        "[how many|the number of] [payments|transactions|purchases] [went|have gone|did i make] "
+        "[to|at] {name} " + _P,
+        "<just_say> mara ngapi [nimelipa|nimetuma|nililipa|nimenunua kwa] {name} " + _P,
+        "{name} [how many times|how often|mara ngapi] " + _P,
+        "<how_often> [have i|did i] used {name} " + _P,
+        "<count> [payments|transactions] [did i make|have i made] [on|from|using] {account} " + _P,
+    ],
+    "spent": [
+        "<much> [did i|have i|do i] [pay|paid|give|gave] {name} " + _P,
+        "<much> [did i|have i] [spend|spent|used] [at|with] {name} " + _P,
+        "<much> [to|at] {name} " + _P,
+        "<much> [went|has gone|goes] [to|at] {name} " + _P,
+        "[total|sum] [paid|payments|spent|spend] [to|at] {name} " + _P,
+        "<much> <cash> [did i|have i] [pay|paid|put] [to|into|at] {name} " + _P,
+        "<much> [did i|have i] paid {name} [on|via|from|using] {account} " + _P,
+        "nimelipa {name} [pesa|<cash>|] ngapi " + _P,
+        "what [did|have] i [paid|pay|spent at] {name} " + _P,
+        "{name} [total|amount|payments] " + _P,
+        "{name} [payments|purchases|bills|spending] [total|so far|] " + _P,
+        "<much> [money|<cash>|] [did|has] {name} [taken|get|got] from me " + _P,
+        "[payments|money|<cash>] [from|on|via] {account} [to|at] {name} " + _P,
+        "<much> [did i|have i] [pay|paid|spend|spent] [at|to] {name} [so far|altogether|in total|"
+        "now|this time|already]",
+        "[what|how much] [has|did] {name} cost me [so far|altogether|in total|] " + _P,
+        "<much> [from|via|on|using] {account} [to|at] {name} " + _P,
+    ],
+    "received_from": [
+        "<much> [did|has|have] {name} [send|sent|pay|paid|give|given] me " + _P,
+        "<much> [did|has] {bank} [send|sent|pay|paid] me " + _P,
+        "{name} <sent_me> [how much|<much>|] " + _P,
+        "{bank} <sent_me> [how much|<much>|] " + _P,
+        "did {name} [send|pay|give] me [anything|money|pesa|<cash>|] " + _P,
+        "[has|did] {name} [sent|paid|send|pay] [me|] [yet|already|back|] " + _P,
+        "what [has|did] {name} [send|sent|paid|pay|given] me " + _P,
+        "<much> [did i|have i|i] <got_from> {name} " + _P,
+        "what [did i|have i|i] <got_from> {name} " + _P,
+        "[money|cash|payments|<cash>|deposits] [i got|received|got|that came|in] from {name} " + _P,
+        "<much> [came in|came|has come] from {name} " + _P,
+        "<much> [did i|have i] <got_from> {bank} " + _P,
+        "[income|earnings|money in] from {name} " + _P,
+        "{name} [ametuma|alituma|amenitumia|alinitumia|amenilipa] [pesa|<cash>|] ngapi " + _P,
+        "[what|anything|everything|money] [that|] came [in|] from {name} " + _P,
+        "[what|the money|the cash|the payments] {name} [sent|paid|gave|transferred] me " + _P,
+        "[the amount|the cash|the payments|everything] [that|which] {name} [gave|transferred|"
+        "deposited|has sent] [me|to me] " + _P,
+        "{name} [paid|gave|transferred|deposited] [me|to me] [money|cash|something|] " + _P,
+        "{bank} [paid|transferred|deposited] [me|to me|into my account] [money|cash|] " + _P,
+        "[any|some] [money|<cash>|payment|payments] [from|by] {name} [yet|] " + _P,
+        "[did|have] i [get|got|receive|received] [anything|money|something] from {name} " + _P,
+        "<much> {name} <sent_me> " + _P,
+    ],
+    "received": [
+        "<much> [money|<cash>|] <came_in> " + _P,
+        "[money|cash|<cash>] in " + _P,
+        "[my|total|] [income|earnings] " + _P,
+        "[what|how much] [did i get|i got|i received|have i got] [in total|altogether|] " + _P,
+        "<much> [did i|have i] [receive|received|get|got|gotten|earn|earned] " + _P,
+        "[total|my|all] [money|<cash>|payments] [received|in|coming in] " + _P,
+        "<much> [is|was] [coming|came] in " + _P,
+        "<much> [income|money in] [did i have|have i had|was there] " + _P,
+    ],
+    "balance": [
+        "{account} [balance|bal|salio]",
+        "[my|the] {account} [balance|bal|salio] [now|today|please|]",
+        "<much> [is|money is|is left|is there|do i have|have i got|remains] [on|in] [my|the|] "
+        "{account} [account|wallet|]",
+        "[how much is|what's|whats|what is] [on|in] [my|] {account} [now|]",
+        "[balance|bal|salio] [on|in|of|for|ya] {account}",
+        "what do i have [on|in] [my|] {account}",
+        "<just_say> {account} [iko na|ina|imebaki na] [pesa|<cash>|] ngapi",
+        "<much> [money|<cash>] [is|do i have] [on|in] {account}",
+        "<much> [money|<cash>|] [is|do i have] [on|in] [my|] {account} [right now|now|today|"
+        "currently|at the moment|please|pls]",
+        "[show|tell|give] [me|] [my|the] {account} [balance|bal] [please|pls|now|]",
+        "[show|check|see|view] {account} [balance|bal|salio] [please|now|]",
+        "[my|] {cashacct} [balance|bal|salio] [please|now|]",
+        "<much> [is|do i have|is left] [in|on] [my|] {cashacct} [now|right now|]",
+        "what's [left|remaining] [in|on] {cashacct}",
+    ],
+    "out_of_scope": [
+        "how often [does it rain|should i exercise|do matatus come|is the news on|do people "
+        "save] [in nairobi|here|]",
+        "how many times [has arsenal won|did kenya win|should i eat|can i retake the exam]",
+        "[send me|tell me|give me] [a joke|a story|a song|a recipe]",
+        "how much [is|does] [a ticket to mombasa|bread|a plot in ruiru|a bitcoin|a dollar|an "
+        "iphone|a car] [cost|go for|today|]",
+        "who sent me [this app|that message|this link|a virus]",
+        "[what is|tell me] the [price|share price|value] of [kcb|equity|safaricom|co-op] shares",
+        "[please|can you] [send|transfer|pay] [money|pesa|500 bob] [to my mum|for me|to my friend]",
+        "how [many|much] [people|money] [live in kenya|does the government have|does a doctor "
+        "earn]",
+        "[what is|what's] the price of [unga|sugar|a phone|land|maize] [in kenya|today|now|]",
+        "how much [do|does|will] [phones|cars|houses|school shoes|a goat] cost [in kenya|now|]",
+        "[transfer|send|pay|move] [money|500|1000|cash] [to my brother|to someone|for me|to my "
+        "landlord] [now|please|]",
+        "can you [send|move|withdraw] money [for me|to my mum|from my account]",
+        "how many times [did|has] [kenya|the team|my team] [win|won|lose|lost] [this year|]",
+        "who [sent|gave] me [this phone|that link|these messages]",
+        "how often do you think i should [save|budget|eat out|travel]",
+        "how [regularly|frequently] should i [pay my bills|buy shares|top up|service my car]",
+        "should i pay [rent|school fees|my loan] [weekly|monthly|early|in cash]",
+        "[what is|what's] the [average|usual] rent in [lavington|ruaka|thika|nakuru|town]",
+        "[rent|land|plot] prices [in|around] [ruaka|thika|nakuru|syokimau]",
+        "how much [does|do] [rent|a plot|a bedsitter] go for in [ruaka|thika|nakuru|town]",
+        "[send|give] [my brother|my dad|my friend|my wife] [some money|cash|2000] [today|for me|]",
+        "[top up|buy] airtime for [my mum|me|my brother] [now|please|]",
+    ],
+    "help": [
+        "what can i ask about [payments|income|my money|payees|balances|shops]",
+        "how do i ask about [a payee|a shop|my income|balances|payments]",
+        "[can i|how can i] ask [you|] about [money in|payments to someone|my accounts]",
+        "what [questions|things] [about money|about my accounts|] can i ask",
+        "what [can|do] you know about [money in|payments|my spending|balances]",
+        "tell me what you can do with [payments|income|my accounts]",
+    ],
+}
+for _intent, _extra in _HARD_TEMPLATES.items():
+    TEMPLATES[_intent].extend(_extra)
+
 _PREFIXES = [
     "hey",
     "hi",
@@ -1883,8 +2092,12 @@ _GLUE = {"?", ",", ".", "!"}
 
 
 class _Gen:
-    def __init__(self, rng: np.random.Generator) -> None:
+    def __init__(self, rng: np.random.Generator, pool: names.NamePool | None = None) -> None:
         self.rng = rng
+        self.pool = pool
+        """With a pool, payee and account holes often take its invented names instead of the
+        short lists above ("wide" names). Without one, version 1 questions come out exactly as
+        they always did."""
 
     def pick(self, options: list[str]) -> str:
         return options[int(self.rng.integers(len(options)))]
@@ -1916,11 +2129,30 @@ def _pieces(g: _Gen, template: str) -> list[tuple[str, int]]:
     pos = 0
     for m in _HOLE.finditer(text):
         out += [(w, 0) for w in text[pos : m.start()].split()]
-        values, label = _VALUES[m.group(1)]
-        out.append((g.pick(values), label))
+        out.append(_fill(g, m.group(1)))
         pos = m.end()
     out += [(w, 0) for w in text[pos:].split()]
     return out
+
+
+def _fill(g: _Gen, hole: str) -> tuple[str, int]:  # noqa: PLR0911
+    pool = g.pool or names.TRAIN
+    if hole == "name":
+        return pool.name(g.rng), PAYEE
+    if hole == "bank":
+        return (pool.sacco(g.rng) if g.chance(0.15) else g.pick(BANK_PAYEES)), PAYEE
+    if hole == "cashacct":
+        return g.pick(["cash", "Cash", "CASH", "my cash"]), ACCOUNT
+    if hole == "paccount":
+        return (pool.sacco(g.rng) if g.chance(0.15) else g.pick(names.PROBE_ACCOUNTS)), ACCOUNT
+    if g.pool is not None and hole == "payee" and g.chance(0.65):
+        return pool.name(g.rng), PAYEE
+    if g.pool is not None and hole == "account" and g.chance(0.6):
+        if g.chance(0.7):
+            return g.pick(names.PROBE_ACCOUNTS), ACCOUNT
+        return (pool.sacco(g.rng) if g.chance(0.2) else g.pick(WIDE_ACCOUNTS)), ACCOUNT
+    values, label = _VALUES[hole]
+    return g.pick(values), label
 
 
 def _roughen(g: _Gen, pieces: list[tuple[str, int]], intent: str) -> list[tuple[str, int]]:
@@ -1979,10 +2211,16 @@ def template_ids() -> list[str]:
     return [f"{intent}:{i}" for intent in ASK_INTENTS for i in range(len(TEMPLATES[intent]))]
 
 
-def generate(n: int, seed: int = 0, templates: set[str] | None = None) -> list[Question]:
+def generate(
+    n: int,
+    seed: int = 0,
+    templates: set[str] | None = None,
+    pool: names.NamePool | None = None,
+) -> list[Question]:
     """``n`` questions, intents uniform, templates uniform within an intent. With
-    ``templates``, only those template ids are used."""
-    g = _Gen(np.random.default_rng(seed))
+    ``templates``, only those template ids are used. With ``pool``, payees and accounts are
+    often invented names from it (training uses :data:`akili.ask.names.TRAIN`)."""
+    g = _Gen(np.random.default_rng(seed), pool)
     pools = {
         intent: [
             (f"{intent}:{i}", t)
@@ -1992,10 +2230,18 @@ def generate(n: int, seed: int = 0, templates: set[str] | None = None) -> list[Q
         for intent in ASK_INTENTS
     }
     intents = [i for i in ASK_INTENTS if pools[i]]
+    # With invented names, version 2 templates (the hard phrasings) come up more often.
+    newer = {
+        intent: [p for p in pools[intent] if int(p[0].split(":")[1]) >= V1_TEMPLATE_COUNTS[intent]]
+        for intent in intents
+    }
     out = []
     for _ in range(n):
         intent = g.pick(intents)
-        tid, template = pools[intent][int(g.rng.integers(len(pools[intent])))]
+        pool_of = pools[intent]
+        if g.pool is not None and newer[intent] and g.chance(V2_SHARE):
+            pool_of = newer[intent]
+        tid, template = pool_of[int(g.rng.integers(len(pool_of)))]
         text, labels = assemble(_roughen(g, _pieces(g, template), intent))
         out.append(Question(text, labels, ASK_INTENTS.index(intent), tid))
     return out
@@ -2003,14 +2249,26 @@ def generate(n: int, seed: int = 0, templates: set[str] | None = None) -> list[Q
 
 def folds(k: int, seed: int = 0) -> list[set[str]]:
     """Split every intent's templates into ``k`` held-out sets, so each template is held out
-    exactly once and every fold holds some of every intent out."""
+    exactly once and every fold holds some of every intent out. Version 1 templates fall in
+    the same folds as before version 2 was added, so their scores compare across versions."""
     rng = np.random.default_rng(seed)
     out: list[set[str]] = [set() for _ in range(k)]
     for intent in ASK_INTENTS:
-        order = rng.permutation(len(TEMPLATES[intent]))
+        order = rng.permutation(V1_TEMPLATE_COUNTS[intent])
         for j, i in enumerate(order):
             out[j % k].add(f"{intent}:{int(i)}")
+    rng = np.random.default_rng(seed + 1)
+    for intent in ASK_INTENTS:
+        first = V1_TEMPLATE_COUNTS[intent]
+        order = rng.permutation(len(TEMPLATES[intent]) - first)
+        start = int(rng.integers(k))
+        for j, i in enumerate(order):
+            out[(start + j) % k].add(f"{intent}:{first + int(i)}")
     return out
+
+
+def v1_template_ids() -> set[str]:
+    return {f"{intent}:{i}" for intent in ASK_INTENTS for i in range(V1_TEMPLATE_COUNTS[intent])}
 
 
 def to_arrays(questions: list[Question]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:

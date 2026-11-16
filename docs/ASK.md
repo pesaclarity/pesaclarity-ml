@@ -102,6 +102,74 @@ the first is the period asked about, the second the one to compare with.
    spans are fuzzy-matched against the person's own categories, payees, items and accounts. A
    span that matches nothing is dropped (and may lead to `nodata`).
 
+### Training and scores
+
+`akili ask-reader` trains on 120,000 synthetic questions from about 720 templates
+([`questions.py`](../src/akili/ask/questions.py)) for 20 epochs and exports the int8 TFLite
+file with its manifest and `ask-reader-report.json`. The export is deterministic: the same code
+gives the same SHA-256 (the model is trained and exported before any evaluation runs, and
+`--skip-evaluation` skips the five folds). Payee and account holes mostly take
+invented names ([`names.py`](../src/akili/ask/names.py)): Kenyan-sounding words built from
+syllables, business words, "Example"/"Sample"/"Demo" names, banks, wallets and Saccos, one to
+four words, in mixed case. Each epoch also swaps 70% of the invented payee and account token
+ids (and 3% of the other tokens) for random hash buckets, as an unknown name lands in a bucket
+another word trained, so the reader tags a name from where it sits in the question; the words of
+the well-known names ("Naivas", "KCB", "my mum") keep their ids, so it still knows those.
+
+The report holds three scores:
+
+- `unseen_templates`: five folds, each trained without a fifth of every intent's templates and
+  scored on them. `mean_intent_accuracy` and `mean_slot_f1` are on the version 1 templates
+  only, with the very questions version 1 was scored on, so they compare across versions;
+  `v2` scores the version 2 templates.
+- `hard_held_out` ([`probes.py`](../src/akili/ask/probes.py)): 2,000 questions from 45 templates
+  that training never uses, on counts and sums for one payee, "how much to X", money in from
+  someone, money in, "<account> balance" and look-alikes that are out of scope or help, with
+  names from a pool whose syllable words training never sees (its business words, prefixes
+  and tails are half the common ones training uses, "Hardware", "Example", "Ltd", and half
+  new ones, "Emporium", "Mock", "EA"; no held-out name is one training makes). `name_exact_match` is, of the
+  questions that name a payee or account, the share whose payee and account spans are exactly
+  right; `unseen_word_name_exact_match` counts only names made entirely of words training never
+  sees ("Mock Zundi Emporium EA").
+- `app_questions`: 65 questions from pesaclarity-app's tests (counts, money in, "X sent me",
+  account balances, names the app does not know), with the reader's reading of each.
+
+| | v1 (dfb9c24) | v2 |
+| --- | --- | --- |
+| Unseen v1 templates: intent accuracy | 0.834 | 0.867 |
+| Unseen v1 templates: slot F1 | 0.828 | 0.847 |
+| Unseen v1 templates: payee / category / item F1 | 0.833 / 0.769 / 0.795 | 0.717 / 0.725 / 0.670 |
+| Unseen v1 templates: period / account / amount F1 | 0.881 / 0.693 / 0.469 | 0.960 / 0.820 / 0.806 |
+| Unseen v2 templates: intent accuracy / slot F1 | - | 0.846 / 0.865 |
+| Hard held-out: intent accuracy | 0.640 | 0.963 |
+| Hard held-out: payee/account exact | 0.110 | 0.926 |
+| Hard held-out: names of unseen words only | 0.013 | 0.872 |
+| App questions: intent accuracy | 0.815 | 0.954 |
+| App questions: payee/account exact | 0.347 | 0.959 |
+| Conformance questions: intent / all slots exact | 1.000 / 0.882 | 0.985 / 0.941 |
+| Parameters / TFLite bytes | 191,749 / 216,872 | 239,589 / 271,904 |
+
+On unseen version 1 templates, v1 tagged its few payees, categories and items by heart wherever
+they stood; v2 leans on where a word stands, so it tags those three a little less often in
+phrasings it has never seen, and periods, accounts and amounts more often. Weak spots: long
+names whose words are all new, names straight after a verb the reader does not
+know ("mara ngapi nimeenda X"), "what did X cost me" and "how much to john" (read as charges),
+an account followed by a period ("charges on KCB this month" reads "KCB this month" as the
+period), and look-alikes such as "how often should I pay rent". Of the conformance questions it
+reads "has Otieno paid me" as a personal loan repaid.
+Scores are on synthetic questions; real ones will score lower.
+
+### Versions
+
+- **v2** (this version): invented names in training, 98 new templates (version 2) for the
+  phrasings v1 misread in the app, token swaps, a wider network with a slot head of its own
+  (96 filters; two small convolutions over the slot features; token embeddings 24 wide), more
+  data and a cosine learning-rate decay. Same input, outputs, labels and `ask_schema_version`;
+  the app needs no change to run it.
+- **v1** (dfb9c24): about 625 templates and a few dozen payees. It tagged no payee in most
+  questions naming one it had not seen ("how many times did I pay Example Grocers"), and read
+  "how often do I pay X" as out of scope and "how much did I pay X" as subscriptions.
+
 ## Ask writer
 
 ### Vocabulary
@@ -286,5 +354,6 @@ model wrote no number of its own.
 
 The models see the question and the facts on the phone and nothing else; there is no network
 call and no learning from people's questions. Training data is synthetic: generic Kenyan first
-names and surnames, well-known chains and utilities, invented amounts. The writer can only say
+names and surnames, well-known chains and utilities, made-up names built from syllables,
+invented amounts. The writer can only say
 what the facts allow, and every number in a reply comes from the app's own records.
