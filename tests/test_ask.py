@@ -72,6 +72,18 @@ def test_version_1_folds_and_questions_are_unchanged() -> None:
     v1 = questions.v1_template_ids()
     assert [f & v1 for f in questions.folds(5)] == old
     assert len(v1) == 626 < len(questions.template_ids())
+    # Version 2 templates keep the folds they had before version 3 (a second permutation per
+    # intent, from a random fold).
+    rng = np.random.default_rng(1)
+    for intent in ASK_INTENTS:
+        first = questions.V1_TEMPLATE_COUNTS[intent]
+        order = rng.permutation(questions.V2_TEMPLATE_COUNTS[intent] - first)
+        start = int(rng.integers(5))
+        for j, i in enumerate(order):
+            old[(start + j) % 5].add(f"{intent}:{first + int(i)}")
+    v2 = questions.v2_template_ids()
+    assert [f & (v1 | v2) for f in questions.folds(5)] == old
+    assert len(v1 | v2) == 724 < len(questions.template_ids())
     # Without a name pool, version 1 templates use the version 1 lists only.
     for q in questions.generate(300, seed=4, templates=v1):
         assert q.template in v1
@@ -120,6 +132,12 @@ def test_probe_sets() -> None:
     s = probes.score_probe(app, intents, perfect, None)
     assert s["intent_accuracy"] == 1.0
     assert s["name_exact_match"] == 1.0
+
+    misses = probes.miss_questions()
+    assert {g for g, _ in misses} == {"fees_on", "how_much_to", "cost_me", "paid_me", "contrast"}
+    assert all(len(q.slots) == len(tokenise(q.text)) for _, q in misses)
+    conformance = probes.conformance_questions()
+    assert len(conformance) == len(examples.build_examples()["questions"])
 
 
 def test_reader_input_is_the_message_reader_encoding() -> None:
@@ -253,7 +271,7 @@ def test_ask_reader_trains_and_exports(tmp_path) -> None:  # type: ignore[no-unt
     assert intent.shape == (8, len(ASK_INTENTS))
     assert slots.shape == (8, MAX_TOKENS, len(SLOT_LABELS))
     np.testing.assert_allclose(intent.sum(-1), 1.0, atol=1e-3)
-    assert {"hard_held_out", "app_questions"} <= set(report)
+    assert {"hard_held_out", "app_questions", "misses", "conformance_questions"} <= set(report)
     assert len(report["app_questions"]["readings"]) == len(probes.app_questions())
 
     # The plain weights are the TFLite file's, and give TFLite's outputs. TFLite's own kernels

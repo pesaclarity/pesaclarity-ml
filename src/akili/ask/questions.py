@@ -396,6 +396,13 @@ GOALS = [
     "shop stock",
 ]
 
+MONTHS = [
+    "January", "February", "March", "April", "May", "June", "July", "August", "September",
+    "October", "November", "December", "Jan", "Feb", "Sept", "Oct", "Nov", "Dec", "september",
+    "october", "march", "august", "december", "june",
+]  # fmt: skip
+"""Bare month names: a period with no preposition ("compare September with October")."""
+
 _VALUES: dict[str, tuple[list[str], int]] = {
     "category": (CATEGORIES, CATEGORY),
     "goal": (GOALS, CATEGORY),
@@ -403,6 +410,8 @@ _VALUES: dict[str, tuple[list[str], int]] = {
     "payee": (PAYEES, PAYEE),
     "period": (PERIODS, PERIOD),
     "period2": (PERIODS, PERIOD),
+    "month": (MONTHS, PERIOD),
+    "month2": (MONTHS, PERIOD),
     "item": (ITEMS, ITEM),
     "account": (ACCOUNTS, ACCOUNT),
     "amount": (AMOUNTS, AMOUNT),
@@ -2048,6 +2057,75 @@ _HARD_TEMPLATES: dict[str, list[str]] = {
 for _intent, _extra in _HARD_TEMPLATES.items():
     TEMPLATES[_intent].extend(_extra)
 
+V2_TEMPLATE_COUNTS: dict[str, int] = {intent: len(TEMPLATES[intent]) for intent in ASK_INTENTS}
+
+# Version 3: the misses of the version 2 reader. Charges on an account followed by a period
+# ("charges on KCB this month": the account ends where the period starts), "how much to X",
+# "what did X cost me" (spending, not charges) and "has X paid me" (money in, not a loan repaid),
+# with the look-alikes that keep their own intent ("what did charges cost me", "has X paid me
+# back"), and bare month names as periods.
+_V3_TEMPLATES: dict[str, list[str]] = {
+    "fees": [
+        "<much> [have i paid|did i pay|did i lose|have i lost] in <fees> [on|at|with|from|for|via] "
+        "{account} " + _P,
+        "<much> [did i pay|have i paid|did i lose] in <fees> [on|at|with|from] {account} {period}",
+        "[how much|what] [did|have] i [pay|paid] [in|for] <fees> [on|at] {account} {period}",
+        "<fees> [on|at|for|from|with] {account} " + _P,
+        "[my|the|total|] <fees> [on|at|for] {account} {period}",
+        "<much> [in|for|on] <fees> [on|at|from|with] {account} " + _P,
+        "<much> [has|did] {account} [charge|charged] me [in fees|in charges|for transactions|] "
+        + _P,
+        "nimelipa [charges|gharama|fees|<fees>] ngapi [kwa|on|na] {account} " + _P,
+        "[my|the|] {account} [bank charges|transaction charges|fees|charges|withdrawal fees] "
+        "{period}",
+        "what did [the|my|] {account} [charges|fees|transaction costs] cost me " + _P,
+        "what did <fees> [on|at] {account} cost me " + _P,
+        "what [did|have] <fees> cost me " + _P,
+    ],
+    "spent": [
+        "<much> to {name} " + _P,
+        "[how much|hw much|how mch|how much money|how much pesa] to {name} [pls|please|]",
+        "[how much|hw much|how much money] to {payee} " + _P,
+        "<much> [from|on|via] {account} to {name} " + _P,
+        "what did {payee} cost me " + _P,
+        "what did {name} cost me [so far|altogether|in total|this time|]",
+        "what has {name} cost me " + _P,
+        "[how much|what] did [shopping at|buying from|going to|paying] {name} cost me " + _P,
+        "how much did {name} cost me " + _P,
+        "what did {category} [at|from] {name} cost me " + _P,
+        "{name} cost me [how much|<much>] " + _P,
+        "what did {word} cost me " + _P,
+        "[how much|hw much|how much money] to {word} " + _P,
+    ],
+    "received_from": [
+        "has {name} paid me " + _P,
+        "has {name} [paid|sent] me [yet|already|] " + _P,
+        "has {payee} paid me [yet|already|anything|] " + _P,
+        "[has|did] {name} [pay|paid] me [anything|money|<cash>|] " + _P,
+        "{name} [amenilipa|ameshanilipa|amenitumia pesa|alinilipa] " + _P,
+        "has {bank} paid me " + _P,
+        "has {word} [paid|sent] me [yet|already|] " + _P,
+        "[did|has] {name} pay me [for the goods|for the work|for the job|] " + _P,
+    ],
+    "lent": [
+        "has {name} paid [me|] back [the loan|my money|what i lent|]",
+        "has {name} [repaid|refunded] [me|my loan|the money i lent]",
+        "[did|has] {name} [pay|paid] [me|] back " + _P,
+        "{name} [amerudisha|ameregesha] [pesa|<cash>|deni] [yangu|]",
+        "has {word} [paid me back|repaid me|paid back the loan]",
+    ],
+    # A bare month is a period too: "what about September", "compare September with October".
+    "refine": [
+        "[what about|how about|and|and for] {month} [then|]",
+    ],
+    "compare": [
+        "<compare> {month} [with|and|to|against|vs] {month2}",
+        "[how does|how did] {month} compare [with|to] {month2}",
+    ],
+}
+for _intent, _extra in _V3_TEMPLATES.items():
+    TEMPLATES[_intent].extend(_extra)
+
 _PREFIXES = [
     "hey",
     "hi",
@@ -2139,6 +2217,8 @@ def _fill(g: _Gen, hole: str) -> tuple[str, int]:  # noqa: PLR0911
     pool = g.pool or names.TRAIN
     if hole == "name":
         return pool.name(g.rng), PAYEE
+    if hole == "word":
+        return pool.word(g.rng), PAYEE
     if hole == "bank":
         return (pool.sacco(g.rng) if g.chance(0.15) else g.pick(BANK_PAYEES)), PAYEE
     if hole == "cashacct":
@@ -2249,26 +2329,39 @@ def generate(
 
 def folds(k: int, seed: int = 0) -> list[set[str]]:
     """Split every intent's templates into ``k`` held-out sets, so each template is held out
-    exactly once and every fold holds some of every intent out. Version 1 templates fall in
-    the same folds as before version 2 was added, so their scores compare across versions."""
+    exactly once and every fold holds some of every intent out. Version 1 and version 2
+    templates fall in the same folds as before later versions were added, so their scores
+    compare across versions."""
     rng = np.random.default_rng(seed)
     out: list[set[str]] = [set() for _ in range(k)]
     for intent in ASK_INTENTS:
         order = rng.permutation(V1_TEMPLATE_COUNTS[intent])
         for j, i in enumerate(order):
             out[j % k].add(f"{intent}:{int(i)}")
-    rng = np.random.default_rng(seed + 1)
-    for intent in ASK_INTENTS:
-        first = V1_TEMPLATE_COUNTS[intent]
-        order = rng.permutation(len(TEMPLATES[intent]) - first)
-        start = int(rng.integers(k))
-        for j, i in enumerate(order):
-            out[(start + j) % k].add(f"{intent}:{first + int(i)}")
+    for step, (counts, ends) in enumerate(
+        [(V1_TEMPLATE_COUNTS, V2_TEMPLATE_COUNTS), (V2_TEMPLATE_COUNTS, None)]
+    ):
+        rng = np.random.default_rng(seed + 1 + step)
+        for intent in ASK_INTENTS:
+            first = counts[intent]
+            last = ends[intent] if ends is not None else len(TEMPLATES[intent])
+            order = rng.permutation(last - first)
+            start = int(rng.integers(k))
+            for j, i in enumerate(order):
+                out[(start + j) % k].add(f"{intent}:{first + int(i)}")
     return out
 
 
 def v1_template_ids() -> set[str]:
     return {f"{intent}:{i}" for intent in ASK_INTENTS for i in range(V1_TEMPLATE_COUNTS[intent])}
+
+
+def v2_template_ids() -> set[str]:
+    return {
+        f"{intent}:{i}"
+        for intent in ASK_INTENTS
+        for i in range(V1_TEMPLATE_COUNTS[intent], V2_TEMPLATE_COUNTS[intent])
+    }
 
 
 def to_arrays(questions: list[Question]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:

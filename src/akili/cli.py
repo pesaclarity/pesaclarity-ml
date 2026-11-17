@@ -125,11 +125,12 @@ def _ask_reader(args: argparse.Namespace) -> int:
 
 
 def _print_probes(report: dict[str, Any]) -> None:
-    for key in ("hard_held_out", "app_questions"):
+    for key in ("hard_held_out", "app_questions", "misses", "conformance_questions"):
         p = report[key]
         print(
             f"{key}: intent accuracy {p['intent_accuracy']:.3f}, "
-            f"payee/account exact {p['name_exact_match']:.3f} ({p['named_questions']} named)"
+            f"payee/account exact {p['name_exact_match']:.3f} ({p['named_questions']} named), "
+            f"all slots exact {p['all_slots_exact_match']:.3f}"
         )
 
 
