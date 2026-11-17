@@ -120,3 +120,24 @@ def test_graph_and_metadata_round_trip() -> None:
         tensors={"t": Tensor(np.zeros(2, np.float32))},
     )
     assert read_weights(plain.to_bytes()).graph is None
+
+
+def test_the_writer_graph_runs_every_tensor_once() -> None:
+    from akili.ask.writer_weights import rayo_graph
+
+    g = rayo_graph(3, 4, 128, 64)
+    defined = {"tokens"} | {s["name"] for s in g["states"]}
+    used: list[str] = []
+    for n in g["nodes"]:
+        for i in n["inputs"]:
+            if i in defined:
+                continue
+            used.append(i)  # a weight
+        defined.add(n["output"])
+    assert len(used) == len(set(used))
+    assert "attention_2.value.kernel" in used
+    assert "logits.bias" in used
+    assert len(used) == 2 + 3 * (4 + 4 * 2 + 4) + 2 + 2
+    assert {o["node"] for o in g["outputs"]} == {"logits"}
+    assert g["plan"] == {"P": 0}
+    assert g["symbols"] == {"T": 64, "P": 63}

@@ -7,7 +7,8 @@ TFLite file stays the reference: akili's tests and evaluation run it, and the we
 back out of it ([`akili.ask.reader_weights`](../src/akili/ask/reader_weights.py)), so they are
 byte for byte the int8 and float32 values in it.
 
-Today one model has one: the Ask reader (`ask-reader.weights`, about 249 KB).
+Two models have one: the Ask reader (`ask-reader.weights`, about 251 KB, run in Dart or by
+rayo) and the Ask writer (`ask-writer.weights`, about 592 KB, run by rayo).
 
 ## Layout
 
@@ -131,6 +132,27 @@ Done that way, the outputs are TFLite's to about 1e-4 on the released reader. TF
 kernels disagree with each other at about that level (XNNPACK and the built-in kernels can
 round one int8 value differently), so the labels are the check, and the probabilities are
 close, not bit-exact.
+
+## The Ask writer on these weights
+
+Its network is [`build_writer`](../src/akili/ask/writer.py): token and position embeddings and
+three pre-norm transformer blocks (layer norm, causal self-attention with four heads, layer norm,
+a GELU feed-forward), a final layer norm and the logits. Its dense layers are int8 like the
+reader's and run the same way (each row of the input quantised on the fly); the attention, the
+layer norms and GELU stay float32. The attention's single `qkv` layer is stored as three,
+`attention_<i>.query`, `.key` and `.value`: the same rows of the same kernel, so the same
+products. Layer norms have `.gamma` and `.beta`; the embeddings `.table`.
+
+Its graph ([`rayo_graph`](../src/akili/ask/writer_weights.py)) decodes word by word: each run
+takes the new tokens at positions `P` .. `P+T-1`, writes every layer's keys and values into a
+cache (graph states) and gives the logits after the last token. Its `symbols` are `T` (at most
+64) and `P` (at most 63), and its `plan` is `P = 0`, since `P + T` is at most 64.
+[`forward`](../src/akili/ask/writer_weights.py) is the reference in NumPy. On the released
+writer, rayo's decodes of the app's 265 requests are TFLite's, token for token.
+
+`akili ask-writer-weights --model path/to/ask-writer.tflite` writes `ask-writer.weights` beside
+it (or into `--out`) and adds the weights' fields to its manifest when that manifest is the
+model's.
 
 ## Exporting
 
