@@ -133,13 +133,6 @@ class NamePool:
             return base.upper()
         return " ".join(w.lower() if rng.random() < 0.5 else w for w in base.split())
 
-    def word(self, rng: np.random.Generator) -> str:
-        """A one-word name ("Wekesa", "wekesa"): short names read like the one-word cues
-        around them ("what did charges cost me"), so they get questions of their own."""
-        w = self.words[int(rng.integers(len(self.words)))]
-        r = rng.random()
-        return w if r < 0.45 else w.lower() if r < 0.9 else w.upper()
-
     def sacco(self, rng: np.random.Generator) -> str:
         w = self.words[int(rng.integers(len(self.words)))]
         p = self.prefixes[int(rng.integers(len(self.prefixes)))]

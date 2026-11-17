@@ -2094,8 +2094,6 @@ _V3_TEMPLATES: dict[str, list[str]] = {
         "how much did {name} cost me " + _P,
         "what did {category} [at|from] {name} cost me " + _P,
         "{name} cost me [how much|<much>] " + _P,
-        "what did {word} cost me " + _P,
-        "[how much|hw much|how much money] to {word} " + _P,
     ],
     "received_from": [
         "has {name} paid me " + _P,
@@ -2104,7 +2102,6 @@ _V3_TEMPLATES: dict[str, list[str]] = {
         "[has|did] {name} [pay|paid] me [anything|money|<cash>|] " + _P,
         "{name} [amenilipa|ameshanilipa|amenitumia pesa|alinilipa] " + _P,
         "has {bank} paid me " + _P,
-        "has {word} [paid|sent] me [yet|already|] " + _P,
         "[did|has] {name} pay me [for the goods|for the work|for the job|] " + _P,
     ],
     "lent": [
@@ -2112,7 +2109,6 @@ _V3_TEMPLATES: dict[str, list[str]] = {
         "has {name} [repaid|refunded] [me|my loan|the money i lent]",
         "[did|has] {name} [pay|paid] [me|] back " + _P,
         "{name} [amerudisha|ameregesha] [pesa|<cash>|deni] [yangu|]",
-        "has {word} [paid me back|repaid me|paid back the loan]",
     ],
     # A bare month is a period too: "what about September", "compare September with October".
     "refine": [
@@ -2217,8 +2213,6 @@ def _fill(g: _Gen, hole: str) -> tuple[str, int]:  # noqa: PLR0911
     pool = g.pool or names.TRAIN
     if hole == "name":
         return pool.name(g.rng), PAYEE
-    if hole == "word":
-        return pool.word(g.rng), PAYEE
     if hole == "bank":
         return (pool.sacco(g.rng) if g.chance(0.15) else g.pick(BANK_PAYEES)), PAYEE
     if hole == "cashacct":
