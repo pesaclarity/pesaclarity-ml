@@ -1,8 +1,9 @@
 # pesaclarity-ml (akili)
 
 Akili is the machine learning side of Pesa Clarity, the free, ad-free app for Android and iPhone that turns M-Pesa
-and bank SMS into a daily plan. It holds the small transaction categoriser that runs on the phone
-(TensorFlow Lite), a synthetic data generator, centralised and DP-SGD training, the client side of
+and bank SMS into a daily plan. It holds the small models that run on the phone (TensorFlow Lite): the
+transaction categoriser, the message reader, and Ask's question reader and reply writer. Around
+them sit a synthetic data generator, centralised and DP-SGD training, the client side of
 federated learning, TFLite export with a size budget, MLflow tracking, and the privacy release gate
 that every model must pass before it leaves the server. The federated aggregator lives in
 [pesaclarity-backend](https://github.com/pesaclarity/pesaclarity-backend).
@@ -82,6 +83,52 @@ messages will score lower.
 [docs/READER-EXAMPLES.md](docs/READER-EXAMPLES.md) shows sample messages for each layout with their
 fields marked.
 
+## Ask
+
+Ask answers questions about the person's own money in plain words, on the phone: "how much did
+I spend on food last month?", "nimetumia pesa ngapi kwa fare wiki hii", "what sells best?". Two
+small models and the app's own database lookups answer; nothing leaves the phone.
+
+- The **ask reader** reads a question into one of 30 intents (spent, sent to, bills due,
+  safe to spend, sales, low stock, follow-ups such as "and only Naivas?", greetings, out of
+  scope, ...) and marks the words that name a category, payee, period, item, account or
+  amount. Its input is the message reader's encoding unchanged, so the app's tokeniser serves
+  both. A 1-D convolutional network like the message reader's: about 240k parameters,
+  about 270 KB as TFLite (budget 400 KB).
+- The app matches the marked words against its own records, parses the dates with rules and
+  runs the lookup.
+- The **ask writer**, a small causal transformer (about 530k parameters, about 650 KB
+  as TFLite), writes a short, warm reply from fact tokens such as `kind=spent cmp=less {amount}
+  {category} {period}`. Replies hold placeholders only, never a number; the app fills them,
+  runs a checker and falls back to a fixed sentence when a reply fails it.
+
+Both train on synthetic text only: questions from about 720 templates with Kenyan English,
+Sheng and Swahili wording, typos and no punctuation, and thousands of invented payee and
+account names; replies combined from about 1,000 hand-written fragments. [docs/ASK.md](docs/ASK.md) is the spec the app implements, with
+conformance cases in [`ask_examples.v1.json`](src/akili/resources/ask_examples.v1.json).
+
+```sh
+uv run akili ask-reader --out artefacts/ask-reader   # train, export, score unseen templates
+uv run akili ask-reader-probe --model path/to/ask-reader.tflite  # score any exported reader
+uv run akili ask-writer --out artefacts/ask-writer   # train, sample and check replies, export
+uv run akili ask-examples                            # regenerate the app's conformance cases
+```
+
+`ask-reader-report.json` holds the scores ([docs/ASK.md](docs/ASK.md#training-and-scores)
+has the table, against v1). When a fifth of every intent's templates is left out of training,
+in five folds, intent accuracy on the unseen version 1 phrasings is about 0.87 (v1: 0.83)
+and slot F1 about 0.85 (v1: 0.83; payee, category and item lower, period, account and amount
+higher). Many held-out templates are Sheng or Swahili phrasings with
+words no other template uses, which no model can read from the rest. On a hard held-out set of
+counts, sums for one payee, money in from someone, money in and account balances, with templates
+and names training never sees, intent accuracy is 0.96 and the payee or account is marked
+exactly in 0.93 of the questions naming one (v1: 0.64 and 0.11); on the questions in the app's
+tests, 0.95 and 0.96 (v1: 0.82 and 0.35). It reads the intent of 67 of the 68 hand-written
+questions in the conformance file right. `ask-writer-report.json` samples 2,000 replies at temperature 0.8: about 99.4% pass the
+checker (98.4% for `spent`, scored on its own; the rest fall back to the fixed sentence), and
+the same facts give a different reply about seven times in ten. Real questions
+will score lower; the app falls back to "Sorry, I did not get that" when the reader is unsure.
+
 ## Configs and tracks
 
 | Config | What it runs |
@@ -129,6 +176,7 @@ tighter PLD accountant's epsilon (`epsilon_pld`) next to the RDP one the gate ch
 
 ```text
 configs/                  experiment configs (YAML, validated by pydantic)
+docs/ASK.md               Ask reader and writer spec for the app
 docs/FEATURES.md          feature pipeline spec for the app
 docs/PRIVACY-AUDIT.md     membership-inference audit: running it, reading it
 docs/RELEASE-CHECKLIST.md release conditions for any model
@@ -138,6 +186,8 @@ src/akili/
   features.py             feature extraction shared with the app
   synthetic.py            fake transactions for tests and smoke training
   vectors.py              feature test vectors (`akili vectors`)
+  reader/                 the message reader: tokens, synthetic messages, training
+  ask/                    Ask: questions, replies, reader and writer training, examples
   model.py                the Keras categoriser            [train]
   train/                  centralised and DP-SGD training   [train]
   export/                 TFLite export and size budget
@@ -152,10 +202,13 @@ tests/                    pytest; test_tf_* need the [train] extra
 ## Testing
 
 ```sh
-uv run ruff format --check . && uv run ruff check . && uv run mypy && uv run pytest
+tool/check          # everything, with all extras: lint, types, all tests, smoke runs, then the core install
+tool/check --fast   # format, lint, types and the tests that skip TensorFlow
+tool/setup-hooks    # once: the pre-push hook runs tool/check
 ```
 
-CI runs this on the core install, then again with `--all-extras` plus the smoke training runs.
+Checks run on your machine, not on GitHub; GitHub only runs releases. See
+[CONTRIBUTING.md](CONTRIBUTING.md#checks-run-on-your-machine).
 
 ## Branches and releases
 
@@ -164,8 +217,8 @@ changes.
 
 1. Pull requests go to `dev`, with a [Conventional Commits](https://www.conventionalcommits.org)
    title (`feat: …`, `fix: …`, `feat!: …` for a breaking change; `docs`, `test`, `ci`, `chore`,
-   `refactor`, `build`, `perf`, `style`, `revert` too). The `PR title` check enforces it, and
-   squash merges keep the title as the commit message. CI runs on every push to `dev`.
+   `refactor`, `build`, `perf`, `style`, `revert` too). The pre-push hook checks your commit
+   titles, and squash merges keep the title as the commit message.
 2. When `dev` is ready, open a pull request from `dev` to `main`. The `Release gate` check allows
    only `dev` (or the release pull request) into `main`, and its QA job waits for a reviewer in
    the `qa` environment. Merge it with a merge commit, not a squash, so each change keeps its own

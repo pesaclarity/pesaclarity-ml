@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# Run the repository's checks on this machine (they used to run in GitHub CI).
+#
+#   tool/check          everything: lint, types, all tests (TensorFlow included),
+#                       smoke training runs, then the core-only install
+#   tool/check --fast   format, lint, types and the tests that skip TensorFlow
+#
+# The pre-push hook runs the full check. Needs uv: https://docs.astral.sh/uv/
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+fast=false
+case "${1:-}" in
+  "") ;;
+  --fast) fast=true ;;
+  -h|--help) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  *) echo "Unknown option: $1 (try --fast or --help)" >&2; exit 2 ;;
+esac
+
+if ! command -v uv >/dev/null 2>&1; then
+  echo "uv is not installed. Install it: https://docs.astral.sh/uv/getting-started/installation/" >&2
+  exit 1
+fi
+
+# Quiet TensorFlow and MLflow, as CI did.
+export MLFLOW_DISABLE_AGENT_HINT=1 TF_CPP_MIN_LOG_LEVEL=2
+
+# step "<name>" "<how to fix>" command...
+step() {
+  local name=$1 fix=$2
+  shift 2
+  echo
+  echo "==> $name"
+  local start=$SECONDS
+  if ! "$@"; then
+    echo
+    echo "FAILED: $name"
+    echo "  Fix: $fix"
+    exit 1
+  fi
+  echo "    ok ($((SECONDS - start))s)"
+}
+
+if $fast; then
+  # --inexact keeps any extras you have installed instead of removing them.
+  run=(uv run --locked --inexact)
+else
+  # Full check uses the training and federated extras, like CI's train job.
+  run=(uv run --locked --all-extras)
+fi
+
+step "ruff format" "run 'uv run ruff format .'" "${run[@]}" ruff format --check .
+step "ruff lint" "run 'uv run ruff check --fix .' and fix the rest by hand" "${run[@]}" ruff check .
+step "mypy" "fix the type errors listed above" "${run[@]}" mypy
+
+if $fast; then
+  step "pytest (without TensorFlow tests)" "fix the failing tests above" \
+    "${run[@]}" pytest -m "not tf"
+  echo
+  echo "Fast checks passed. Run tool/check for everything (the pre-push hook does)."
+  exit 0
+fi
+
+fix_smoke="rerun the command above and read its error; see README.md"
+step "pytest (all, with extras)" "fix the failing tests above" "${run[@]}" pytest
+step "smoke: train" "$fix_smoke" "${run[@]}" akili train --config configs/smoke.yaml
+step "smoke: train DP-SGD" "$fix_smoke" "${run[@]}" akili train --config configs/dp-sgd.yaml
+step "smoke: federated simulation" "$fix_smoke" \
+  "${run[@]}" akili simulate --config configs/federated-smoke.yaml
+# Quick audit runs the attacks end to end; too small to pass, so report only.
+step "quick privacy audit (report only)" "$fix_smoke" \
+  "${run[@]}" akili audit --quick --report-only \
+  --config configs/audit-no-dp.yaml --config configs/audit-dp-sgd.yaml
+
+# The core install (no extras) must work on its own. --isolated builds a
+# throwaway environment, so your .venv keeps its extras.
+core=(uv run --locked --isolated)
+step "mypy (core install, no extras)" "keep optional extras out of core imports" "${core[@]}" mypy
+step "pytest (core install, no extras)" "keep optional extras out of core code and tests" \
+  "${core[@]}" pytest
+
+echo
+echo "All checks passed."
