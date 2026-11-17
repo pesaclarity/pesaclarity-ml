@@ -71,6 +71,35 @@ Unknown header fields are ignored, so fields can be added within a version. Anyt
 changes how existing fields are read (a new dtype, layout or layer kind a reader must know)
 bumps `format_version`, and the app refuses a version it does not read.
 
+## The rayo graph
+
+The app's native runtime, [rayo](https://github.com/pesaclarity/rayo), runs the same file. For
+it the header has an optional `graph` field (and may have a `metadata` object): the ops that run
+the tensors, with their inputs and attributes, specified in rayo's
+[docs/FORMAT.md](https://github.com/pesaclarity/rayo/blob/main/docs/FORMAT.md). A reader that
+does not know the field ignores it, as above, so adding it keeps the file at version 1, and the
+Dart reader and rayo read one file.
+
+```json
+"graph": {
+  "version": 1,
+  "symbols": {"T": 96},
+  "inputs": [{"name": "tokens", "dtype": "int32", "shape": ["T"]},
+             {"name": "shapes", "dtype": "int32", "shape": ["T"]}],
+  "nodes": [
+    {"op": "gather", "inputs": ["token_embedding.table", "tokens"], "output": "tok"},
+    {"op": "conv1d", "inputs": ["emb", "conv_1.kernel", "conv_1.bias"], "output": "c1",
+     "size": 3, "dilation": 1, "activation": "relu", "input_quantization": "tensor_phases"}
+  ],
+  "outputs": [{"name": "slots", "node": "slots"}, {"name": "intent", "node": "intent"}]
+}
+```
+
+`input_quantization` names how TFLite's hybrid kernels quantise the layer's input, as described
+below: `rows` (each row) or `tensor_phases` (the whole input, each dilation phase alone). The
+Ask reader's graph is [`rayo_graph`](../src/akili/ask/reader_weights.py); `graph.version` is
+rayo's, separate from this file's version.
+
 ## The manifest
 
 The model's manifest carries the file beside the TFLite fields, which stay for provenance:

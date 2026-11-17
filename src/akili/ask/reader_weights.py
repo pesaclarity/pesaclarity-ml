@@ -46,6 +46,74 @@ LAYERS: list[dict[str, Any]] = [
 ]
 
 
+def rayo_graph() -> dict[str, Any]:
+    """The graph rayo (the app's native runtime) runs these weights with: LAYERS wired as
+    build_ask_reader wires them, each int8 layer run as TFLite runs it (docs/WEIGHTS.md,
+    "The rayo graph"). Inputs are the encoding's two halves, token ids and shape ids."""
+
+    def conv(x: str, name: str, out: str) -> dict[str, Any]:
+        spec = next(layer for layer in LAYERS if layer["name"] == name)
+        return {
+            "op": "conv1d",
+            "inputs": [x, f"{name}.kernel", f"{name}.bias"],
+            "output": out,
+            "size": spec["size"],
+            "dilation": spec["dilation"],
+            "activation": "relu",
+            "input_quantization": "tensor_phases",
+        }
+
+    def dense(x: str, name: str, out: str, activation: str) -> dict[str, Any]:
+        return {
+            "op": "dense",
+            "inputs": [x, f"{name}.kernel", f"{name}.bias"],
+            "output": out,
+            "activation": activation,
+            "input_quantization": "rows",
+        }
+
+    def op(kind: str, inputs: list[str], out: str, **attrs: Any) -> dict[str, Any]:
+        return {"op": kind, "inputs": inputs, "output": out, **attrs}
+
+    nodes = [
+        op("gather", ["token_embedding.table", "tokens"], "tok"),
+        op("gather", ["shape_embedding.table", "shapes"], "shp"),
+        op("concat", ["tok", "shp"], "emb"),
+        op("mask", ["shapes"], "mask"),
+        conv("emb", "conv_1", "c1"),
+        conv("c1", "conv_2", "c2"),
+        op("add", ["c1", "c2"], "x2"),
+        conv("x2", "conv_3", "c3"),
+        op("add", ["x2", "c3"], "x"),
+        op("concat", ["x", "emb"], "xe"),
+        dense("xe", "slot_hidden", "sh", "relu"),
+        conv("sh", "slot_context", "sc"),
+        op("add", ["sh", "sc"], "s2"),
+        conv("s2", "slot_span", "ss"),
+        op("add", ["s2", "ss"], "s3"),
+        dense("s3", "slots", "slot_logits", "none"),
+        op("softmax", ["slot_logits"], "slots"),
+        op("masked_max", ["x", "mask"], "pmax", fill=10000),
+        op("masked_mean", ["x", "mask"], "pmean"),
+        op("masked_mean", ["emb", "mask"], "emean"),
+        op("concat", ["pmax", "pmean"], "p1"),
+        op("concat", ["p1", "emean"], "pooled"),
+        dense("pooled", "intent_hidden", "ih", "relu"),
+        dense("ih", "intent", "intent_logits", "none"),
+        op("softmax", ["intent_logits"], "intent"),
+    ]
+    return {
+        "version": 1,
+        "symbols": {"T": MAX_TOKENS},
+        "inputs": [
+            {"name": "tokens", "dtype": "int32", "shape": ["T"]},
+            {"name": "shapes", "dtype": "int32", "shape": ["T"]},
+        ],
+        "nodes": nodes,
+        "outputs": [{"name": "slots", "node": "slots"}, {"name": "intent", "node": "intent"}],
+    }
+
+
 def _tensor(detail: dict[str, Any], value: np.ndarray) -> Tensor:
     if value.dtype.name != "int8":
         return Tensor(value.astype(np.float32))
@@ -123,6 +191,7 @@ def read_tflite(path: str | Path) -> Weights:
         source_size_bytes=len(blob),
         layers=LAYERS,
         tensors=tensors,
+        graph=rayo_graph(),
     )
 
 
