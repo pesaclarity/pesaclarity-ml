@@ -72,3 +72,51 @@ def test_refuses_what_does_not_fit() -> None:
         Tensor(np.zeros((2, 3), dtype=np.int8), np.ones(3, dtype=np.float32), axis=0)
     with pytest.raises(ValueError, match="not int8 or float32"):
         Tensor(np.zeros(3, dtype=np.float64))
+
+
+def test_the_rayo_graph_runs_every_layer_once() -> None:
+    from akili.ask.reader_weights import LAYERS, rayo_graph
+
+    g = rayo_graph()
+    used = [i for n in g["nodes"] for i in n["inputs"]]
+    for layer in LAYERS:
+        names = (
+            [f"{layer['name']}.table"]
+            if layer["kind"] == "embedding"
+            else [f"{layer['name']}.kernel", f"{layer['name']}.bias"]
+        )
+        for name in names:
+            assert used.count(name) == 1, name
+    outputs = {n["output"] for n in g["nodes"]}
+    assert len(outputs) == len(g["nodes"])
+    defined = {"tokens", "shapes"}
+    weights = {f"{x['name']}.{p}" for x in LAYERS for p in ("table", "kernel", "bias")}
+    for n in g["nodes"]:
+        assert all(i in defined or i in weights for i in n["inputs"]), n
+        defined.add(n["output"])
+    assert {o["node"] for o in g["outputs"]} <= defined
+
+
+def test_graph_and_metadata_round_trip() -> None:
+    w = Weights(
+        model="m",
+        source_file="f",
+        source_sha256="0" * 64,
+        source_size_bytes=0,
+        layers=[],
+        tensors={"t": Tensor(np.zeros(2, np.float32))},
+        graph={"version": 1},
+        metadata={"a": 1},
+    )
+    back = read_weights(w.to_bytes())
+    assert back.graph == {"version": 1}
+    assert back.metadata == {"a": 1}
+    plain = Weights(
+        model="m",
+        source_file="f",
+        source_sha256="0" * 64,
+        source_size_bytes=0,
+        layers=[],
+        tensors={"t": Tensor(np.zeros(2, np.float32))},
+    )
+    assert read_weights(plain.to_bytes()).graph is None

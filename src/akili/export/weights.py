@@ -66,6 +66,11 @@ class Weights:
     source_size_bytes: int
     layers: list[dict[str, Any]]
     tensors: dict[str, Tensor] = field(default_factory=dict)
+    # Optional header fields for rayo, the app's native runtime (docs/WEIGHTS.md): the
+    # graph that runs the tensors, and metadata passed to the caller. Readers that do not
+    # know them ignore them, so the file stays version 1.
+    graph: dict[str, Any] | None = None
+    metadata: dict[str, Any] | None = None
 
     def to_bytes(self) -> bytes:
         entries: list[dict[str, Any]] = []
@@ -109,6 +114,8 @@ class Weights:
                 },
                 "layers": self.layers,
                 "tensors": entries,
+                **({"graph": self.graph} if self.graph is not None else {}),
+                **({"metadata": self.metadata} if self.metadata is not None else {}),
             },
             separators=(",", ":"),
         ).encode()
@@ -177,4 +184,6 @@ def read_weights(blob: bytes) -> Weights:
         source_size_bytes=source["size_bytes"],
         layers=header["layers"],
         tensors=tensors,
+        graph=header.get("graph"),
+        metadata=header.get("metadata"),
     )
