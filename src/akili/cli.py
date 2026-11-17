@@ -1,6 +1,6 @@
 """Command line: ``akili synth | vectors | reader-vectors | reader-examples | reader |
-ask-examples | ask-reader | ask-reader-probe | ask-writer | epsilon | ledger | gate | train |
-audit | simulate``."""
+ask-examples | ask-reader | ask-reader-weights | ask-reader-probe | ask-writer | epsilon |
+ledger | gate | train | audit | simulate``."""
 
 from __future__ import annotations
 
@@ -133,6 +133,18 @@ def _print_probes(report: dict[str, Any]) -> None:
         )
 
 
+def _ask_reader_weights(args: argparse.Namespace) -> int:
+    from akili.ask.reader_weights import export_weights
+
+    fields = export_weights(args.model, args.out)
+    out = Path(args.out) if args.out else Path(args.model).parent
+    print(
+        f"ask reader weights, format {fields['weights_format_version']}: "
+        f"{fields['weights_size_bytes']} bytes at {out / fields['weights_file']}"
+    )
+    return 0
+
+
 def _ask_reader_probe(args: argparse.Namespace) -> int:
     from akili.ask.reader import probe_scores
 
@@ -164,7 +176,8 @@ def _ask_writer(args: argparse.Namespace) -> int:
 
 
 def _add_ask_commands(sub: Any) -> None:
-    """``ask-examples``, ``ask-reader`` and ``ask-writer``."""
+    """``ask-examples``, ``ask-reader``, ``ask-reader-weights``, ``ask-reader-probe`` and
+    ``ask-writer``."""
     p = sub.add_parser("ask-examples", help="regenerate the Ask conformance examples for the app")
     p.add_argument("--out")
     p.add_argument("--check", action="store_true")
@@ -177,6 +190,14 @@ def _add_ask_commands(sub: Any) -> None:
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--skip-evaluation", action="store_true")
     p.set_defaults(func=_ask_reader)
+
+    p = sub.add_parser(
+        "ask-reader-weights",
+        help="write ask-reader.weights from an ask-reader.tflite (docs/WEIGHTS.md) [train]",
+    )
+    p.add_argument("--model", default="artefacts/ask-reader/ask-reader.tflite")
+    p.add_argument("--out", help="folder to write to (default: beside the model)")
+    p.set_defaults(func=_ask_reader_weights)
 
     p = sub.add_parser(
         "ask-reader-probe", help="score an ask-reader.tflite on the hard and app questions [train]"

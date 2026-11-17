@@ -1,3 +1,4 @@
+import hashlib
 import json
 
 import numpy as np
@@ -254,6 +255,36 @@ def test_ask_reader_trains_and_exports(tmp_path) -> None:  # type: ignore[no-unt
     np.testing.assert_allclose(intent.sum(-1), 1.0, atol=1e-3)
     assert {"hard_held_out", "app_questions"} <= set(report)
     assert len(report["app_questions"]["readings"]) == len(probes.app_questions())
+
+    # The plain weights are the TFLite file's, and give TFLite's outputs. TFLite's own kernels
+    # (XNNPACK and the built-in ones) differ from each other by a few 1e-4 on this barely
+    # trained model, where an int8 rounding falls the other way.
+    from akili.ask.reader_weights import WEIGHTS_FILE, export_weights, forward
+    from akili.export.weights import read_weights
+
+    blob = (tmp_path / WEIGHTS_FILE).read_bytes()
+    assert manifest["weights_file"] == WEIGHTS_FILE
+    assert manifest["weights_size_bytes"] == len(blob)
+    assert manifest["weights_sha256"] == hashlib.sha256(blob).hexdigest()
+    assert manifest["weights_format_version"] == 1
+    weights = read_weights(blob)
+    assert weights.source_sha256 == manifest["model_sha256"]
+    assert weights.tensors["conv_1.kernel"].value.dtype == np.int8
+    params = sum(t.value.size for t in weights.tensors.values())
+    assert params == report["parameters"]
+    for i in range(len(x)):
+        d_intent, d_slots = forward(weights, x[i])
+        n = int((x[i, MAX_TOKENS:] > 0).sum())  # padding positions are meaningless
+        np.testing.assert_allclose(d_intent, intent[i], atol=1e-3)
+        np.testing.assert_allclose(d_slots[:n], slots[i, :n], atol=1e-3)
+    # Exporting again from the TFLite file gives the same bytes and leaves the manifest as is.
+    again = tmp_path / "again"
+    again.mkdir()
+    assert (
+        export_weights(tmp_path / MODEL_FILE, again)["weights_sha256"]
+        == hashlib.sha256(blob).hexdigest()
+    )
+    assert (again / WEIGHTS_FILE).read_bytes() == blob
 
 
 def test_token_swaps_leave_shapes_and_padding_alone() -> None:

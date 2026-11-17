@@ -15,6 +15,9 @@ Evaluation holds templates out (see :func:`akili.ask.questions.folds`): each fol
 without a fifth of every intent's templates and scores the TFLite model on them. Slots score
 as whole spans: a slot counts only when every token of it, and nothing else, carries its label.
 The exported model is also scored on :mod:`akili.ask.probes`.
+
+Beside the TFLite file goes ``ask-reader.weights``, its tensors read back out of it in the plain
+format of docs/WEIGHTS.md (:mod:`akili.ask.reader_weights`): the app runs the reader in Dart.
 """
 
 from __future__ import annotations
@@ -41,6 +44,7 @@ from akili.ask.questions import (
     to_arrays,
     v1_template_ids,
 )
+from akili.ask.reader_weights import WEIGHTS_FILE, manifest_fields, read_tflite
 from akili.ask.schema import ASK_INTENTS, ASK_SCHEMA_VERSION, SLOT_LABELS
 from akili.reader.tokens import (
     HASH_BUCKETS,
@@ -349,7 +353,9 @@ def evaluate_unseen_templates(cfg: AskReaderConfig, work: Path) -> dict[str, Any
     }
 
 
-def ask_reader_manifest(blob: bytes) -> dict[str, Any]:
+def ask_reader_manifest(blob: bytes, weights: bytes) -> dict[str, Any]:
+    """The manifest for the TFLite file ``blob`` and its plain ``weights``
+    (:mod:`akili.ask.reader_weights`)."""
     return {
         "model_file": MODEL_FILE,
         "model_sha256": hashlib.sha256(blob).hexdigest(),
@@ -366,6 +372,7 @@ def ask_reader_manifest(blob: bytes) -> dict[str, Any]:
             "intent": {"shape": [-1, len(ASK_INTENTS)], "labels": list(ASK_INTENTS)},
             "slots": {"shape": [-1, MAX_TOKENS, len(SLOT_LABELS)], "labels": list(SLOT_LABELS)},
         },
+        **manifest_fields(weights),
         "trained_on": "synthetic questions only",
     }
 
@@ -373,9 +380,9 @@ def ask_reader_manifest(blob: bytes) -> dict[str, Any]:
 def train_ask_reader(
     cfg: AskReaderConfig, out_dir: str | Path, evaluate: bool = True
 ) -> dict[str, Any]:
-    """Train on every template and export TFLite with its manifest, score it on the probe
-    sets, then (unless ``evaluate`` is off) score the recipe on held-out templates. Returns the
-    report."""
+    """Train on every template and export TFLite, its plain weights (read out of the TFLite
+    file, for the app's Dart reader) and their manifest, score it on the probe sets, then
+    (unless ``evaluate`` is off) score the recipe on held-out templates. Returns the report."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     # The model to export first, so it is the same with or without the evaluation.
@@ -384,6 +391,7 @@ def train_ask_reader(
     if len(blob) > cfg.max_size_bytes:
         raise ValueError(f"ask reader is {len(blob)} bytes, over {cfg.max_size_bytes}")
     (out / MODEL_FILE).write_bytes(blob)
+    weights = read_tflite(out / MODEL_FILE).write(out / WEIGHTS_FILE).read_bytes()
     seen = score(model, generate(2000, seed=cfg.seed + 999), out / "seen.tflite")
     probed = probe_scores(out / MODEL_FILE)
     unseen = evaluate_unseen_templates(cfg, out) if evaluate else None
@@ -398,7 +406,7 @@ def train_ask_reader(
         **probed,
         "note": "Scores are on synthetic questions; real questions will score lower.",
     }
-    manifest = ask_reader_manifest(blob)
+    manifest = ask_reader_manifest(blob, weights)
     (out / MANIFEST_FILE).write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     (out / REPORT_FILE).write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     return report
