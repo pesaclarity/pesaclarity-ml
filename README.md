@@ -94,7 +94,8 @@ small models and the app's own database lookups answer; nothing leaves the phone
   scope, ...) and marks the words that name a category, payee, period, item, account or
   amount. Its input is the message reader's encoding unchanged, so the app's tokeniser serves
   both. A 1-D convolutional network like the message reader's: about 240k parameters,
-  about 270 KB as TFLite (budget 400 KB).
+  about 270 KB as TFLite (budget 400 KB). The app runs it in Dart from its plain weights
+  ([docs/WEIGHTS.md](docs/WEIGHTS.md)), read out of the TFLite file.
 - The app matches the marked words against its own records, parses the dates with rules and
   runs the lookup.
 - The **ask writer**, a small causal transformer (about 530k parameters, about 650 KB
@@ -109,7 +110,8 @@ conformance cases in [`ask_examples.v1.json`](src/akili/resources/ask_examples.v
 
 ```sh
 uv run akili ask-reader --out artefacts/ask-reader   # train, export, score unseen templates
-uv run akili ask-reader-probe --model path/to/ask-reader.tflite  # score any exported reader
+uv run akili ask-reader-probe --model path/to/ask-reader.tflite    # score any exported reader
+uv run akili ask-reader-weights --model path/to/ask-reader.tflite  # plain weights for the app
 uv run akili ask-writer --out artefacts/ask-writer   # train, sample and check replies, export
 uv run akili ask-examples                            # regenerate the app's conformance cases
 ```
@@ -180,6 +182,7 @@ docs/ASK.md               Ask reader and writer spec for the app
 docs/FEATURES.md          feature pipeline spec for the app
 docs/PRIVACY-AUDIT.md     membership-inference audit: running it, reading it
 docs/RELEASE-CHECKLIST.md release conditions for any model
+docs/WEIGHTS.md           plain weights format the app's Dart models read
 src/akili/
   resources/              categories.yaml, tracks.yaml, feature test vectors
   config.py               experiment config models
@@ -190,7 +193,7 @@ src/akili/
   ask/                    Ask: questions, replies, reader and writer training, examples
   model.py                the Keras categoriser            [train]
   train/                  centralised and DP-SGD training   [train]
-  export/                 TFLite export and size budget
+  export/                 TFLite export, size budget, plain weights format
   federated/              client, update maths, simulation, Flower adapter
   privacy/                privacy accounting, budget ledger, membership-inference audit
                           (mia.py [train]), release gate

@@ -39,6 +39,11 @@ both models unchanged. Questions longer than 96 tokens are cut, as for messages.
 The manifest (`ask-reader-manifest.json`) lists both and their labels; read the outputs by
 shape (rank 2 is the intent, rank 3 the slots), as with the message reader.
 
+The app runs the reader in Dart, not TFLite: beside `ask-reader.tflite` goes
+`ask-reader.weights`, its tensors read back out of the TFLite file in the plain format of
+[WEIGHTS.md](WEIGHTS.md), which also says how to run them to get TFLite's outputs. The manifest
+gives the weights' file, SHA-256, size and format version next to the TFLite file's.
+
 | Id | Intent | Example |
 | --- | --- | --- |
 | 0 | `spent` | how much did I spend on food last month |
@@ -106,7 +111,7 @@ the first is the period asked about, the second the one to compare with.
 
 `akili ask-reader` trains on 120,000 synthetic questions from about 720 templates
 ([`questions.py`](../src/akili/ask/questions.py)) for 20 epochs and exports the int8 TFLite
-file with its manifest and `ask-reader-report.json`. The export is deterministic: the same code
+file, its plain weights (`ask-reader.weights`), their manifest and `ask-reader-report.json`. The export is deterministic: the same code
 gives the same SHA-256 (the model is trained and exported before any evaluation runs, and
 `--skip-evaluation` skips the five folds). Payee and account holes mostly take
 invented names ([`names.py`](../src/akili/ask/names.py)): Kenyan-sounding words built from
