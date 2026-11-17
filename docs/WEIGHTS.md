@@ -98,8 +98,11 @@ Dart reader and rayo read one file.
 
 `input_quantization` names how TFLite's hybrid kernels quantise the layer's input, as described
 below: `rows` (each row) or `tensor_phases` (the whole input, each dilation phase alone). The
-Ask reader's graph is [`rayo_graph`](../src/akili/ask/reader_weights.py); `graph.version` is
-rayo's, separate from this file's version.
+Ask reader's graph is [`rayo_graph`](../src/akili/ask/reader_weights.py), in rayo's general
+ops ([docs/OPS.md](https://github.com/pesaclarity/rayo/blob/main/docs/OPS.md)): its padding
+mask is `compare` (shape id `greater` than 0), and its pooling `masked_reduce` (`max` with
+`fill` -10000, as the model's `x * m - (1 - m) * 1e4`, and `mean`). `graph.version` is rayo's,
+separate from this file's version.
 
 ## The manifest
 
