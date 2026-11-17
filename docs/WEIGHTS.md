@@ -81,6 +81,15 @@ the tensors, with their inputs and attributes, specified in rayo's
 does not know the field ignores it, as above, so adding it keeps the file at version 1, and the
 Dart reader and rayo read one file.
 
+The graph is written by **rayo-convert**, rayo's converter
+([docs/CONVERTING.md](https://github.com/pesaclarity/rayo/blob/main/docs/CONVERTING.md)), from the
+same TFLite file the tensors come from ([`akili.export.rayo`](../src/akili/export/rayo.py)): it
+maps the TFLite graph's ops to rayo's, fuses what rayo runs as one op, and gives the tensors as
+they are in the file, under the Keras layers' names. It is a dependency pinned to a rayo commit
+(pyproject.toml), so the same TFLite file always gives the same bytes; to move to a newer rayo,
+change the commit there and run `uv lock`. Nothing here wires a graph by hand, and exporting the
+weights needs no TensorFlow.
+
 ```json
 "graph": {
   "version": 1,
@@ -88,21 +97,28 @@ Dart reader and rayo read one file.
   "inputs": [{"name": "tokens", "dtype": "int32", "shape": ["T"]},
              {"name": "shapes", "dtype": "int32", "shape": ["T"]}],
   "nodes": [
-    {"op": "gather", "inputs": ["token_embedding.table", "tokens"], "output": "tok"},
-    {"op": "conv1d", "inputs": ["emb", "conv_1.kernel", "conv_1.bias"], "output": "c1",
-     "size": 3, "dilation": 1, "activation": "relu", "input_quantization": "tensor_phases"}
+    {"op": "gather", "inputs": ["token_embedding.table", "tokens"],
+     "output": "token_embedding.gather"},
+    {"op": "conv1d", "inputs": ["concatenate.concat", "conv_1.kernel", "conv_1.bias"],
+     "output": "conv_1.conv1d", "size": 3, "dilation": 1, "activation": "relu",
+     "input_quantization": "tensor_phases"}
   ],
-  "outputs": [{"name": "slots", "node": "slots"}, {"name": "intent", "node": "intent"}]
+  "outputs": [{"name": "slots", "node": "slots.softmax"},
+              {"name": "intent", "node": "intent.softmax"}]
 }
 ```
 
 `input_quantization` names how TFLite's hybrid kernels quantise the layer's input, as described
-below: `rows` (each row) or `tensor_phases` (the whole input, each dilation phase alone). The
-Ask reader's graph is [`rayo_graph`](../src/akili/ask/reader_weights.py), in rayo's general
-ops ([docs/OPS.md](https://github.com/pesaclarity/rayo/blob/main/docs/OPS.md)): its padding
-mask is `compare` (shape id `greater` than 0), and its pooling `masked_reduce` (`max` with
-`fill` -10000, as the model's `x * m - (1 - m) * 1e4`, and `mean`). `graph.version` is rayo's,
-separate from this file's version.
+below: `rows` (each row) or `tensor_phases` (the whole input, each dilation phase alone).
+`graph.version` is rayo's, separate from this file's version.
+
+How each model is presented to rayo is said once, in its module's `RAYO_OPTIONS`: the reader's
+one input `[1, 192]` as two, `tokens` and `shapes` (token ids, then shape ids), and its slots
+before its intent ([`reader_weights`](../src/akili/ask/reader_weights.py)); the writer's
+output named `logits` ([`writer_weights`](../src/akili/ask/writer_weights.py)). The reader's
+padding mask and pooling stay as the model computes them (`compare`, `mul`, `reduce`, `div`,
+`maximum`), which adds three float32 scalars to its tensors (`const`, `const_2`, `const_3`:
+the model's 1, 1e4 and 1); every layer's tensors are as before.
 
 ## The manifest
 
@@ -146,12 +162,17 @@ layer norms and GELU stay float32. The attention's single `qkv` layer is stored 
 `attention_<i>.query`, `.key` and `.value`: the same rows of the same kernel, so the same
 products. Layer norms have `.gamma` and `.beta`; the embeddings `.table`.
 
-Its graph ([`rayo_graph`](../src/akili/ask/writer_weights.py)) decodes word by word: each run
-takes the new tokens at positions `P` .. `P+T-1`, writes every layer's keys and values into a
-cache (graph states) and gives the logits after the last token. Its `symbols` are `T` (at most
+Its graph decodes word by word: rayo-convert recognises the TFLite graph's three causal
+self-attention blocks and rewrites them for a key/value cache, so each run takes the new tokens
+at positions `P` .. `P+T-1`, writes every layer's keys and values into a cache (graph states)
+and gives the logits after the last token; the final layer norm and the logits run on that one
+position. `read_tflite` checks the conversion did this (three cached, causal attention layers
+of four heads) and fails otherwise, with rayo-convert's notes. Its `symbols` are `T` (at most
 64) and `P` (at most 63), and its `plan` is `P = 0`, since `P + T` is at most 64.
 [`forward`](../src/akili/ask/writer_weights.py) is the reference in NumPy. On the released
-writer, rayo's decodes of the app's 265 requests are TFLite's, token for token.
+writer, rayo's decodes of the app's 265 requests are TFLite's, token for token; the converted
+file's logits are bit for bit those of the graph this repository used to write by hand, at all
+2243 steps of the recorded replies, and the reader's outputs on the 30 recorded questions too.
 
 `akili ask-writer-weights --model path/to/ask-writer.tflite` writes `ask-writer.weights` beside
 it (or into `--out`) and adds the weights' fields to its manifest when that manifest is the

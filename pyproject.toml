@@ -12,6 +12,8 @@ dependencies = [
     "numpy>=1.26,<3",
     "pydantic>=2.9,<3",
     "pyyaml>=6.0.2,<7",
+    # rayo's model converter, pinned to a rayo commit: the plain weights' graph (docs/WEIGHTS.md).
+    "rayo-convert @ git+https://github.com/pesaclarity/rayo@663359ba0787ff3901899525a3f32def6f64bfa3#subdirectory=convert",
 ]
 
 [project.optional-dependencies]
@@ -41,6 +43,10 @@ dev = [
 [build-system]
 requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+# rayo-convert comes from rayo's repository, by commit.
+allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/akili"]

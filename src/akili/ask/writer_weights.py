@@ -5,32 +5,33 @@ weights from ``ask-writer.weights`` (format: [docs/WEIGHTS.md](../../../docs/WEI
 the graph rayo runs them with). They are read out of the very ``ask-writer.tflite`` that
 :mod:`akili.ask.writer` exports, so they are the int8 and float32 values TFLite runs.
 
-The graph decodes word by word: each run takes the new tokens at positions ``P`` .. ``P+T-1``,
-keeps every layer's keys and values in a cache, and gives the logits after the last token.
+rayo-convert (pesaclarity/rayo, a pinned dependency) reads the file and writes the graph: it
+recognises the TFLite graph's causal self-attention and rewrites it for a key/value cache, so
+the graph decodes word by word: each run takes the new tokens at positions ``P`` ..
+``P+T-1``, keeps every layer's keys and values in a cache, and gives the logits after the last
+token. No TensorFlow is needed.
 
 :func:`forward` is the reference on those weights, in NumPy: the layers of
 :func:`akili.ask.writer.build_writer` run the way TFLite's built-in kernels run this
-dynamic-range-quantised model, to about 1e-5. Reading the file needs the [train] extra
-(TensorFlow's interpreter); :func:`forward` needs only NumPy.
+dynamic-range-quantised model, to about 1e-5. It needs only NumPy.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-import warnings
 from math import erf, sqrt
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+from rayo_convert import Options
 
-from akili._optional import require
-from akili.ask.reader_weights import _quantised, _tensor
-from akili.export.weights import FORMAT_VERSION, Tensor, Weights
+from akili.ask.reader_weights import _quantised
+from akili.export.rayo import weights_of
+from akili.export.weights import FORMAT_VERSION, Weights
 
 WEIGHTS_FILE = "ask-writer.weights"
-_PREFIX = "akili_ask_writer_1/"
 
 
 def layers(n_layers: int) -> list[dict[str, Any]]:
@@ -54,132 +55,48 @@ def layers(n_layers: int) -> list[dict[str, Any]]:
     ]
 
 
-def rayo_graph(n_layers: int, heads: int, dim: int, length: int) -> dict[str, Any]:
-    """The graph rayo runs the writer with, one step of a word-by-word decode."""
-
-    def op(kind: str, inputs: list[str], out: str, **attrs: Any) -> dict[str, Any]:
-        return {"op": kind, "inputs": inputs, "output": out, **attrs}
-
-    def dense(x: str, name: str, out: str, **attrs: Any) -> dict[str, Any]:
-        return op(
-            "dense", [x, f"{name}.kernel", f"{name}.bias"], out, input_quantization="rows", **attrs
-        )
-
-    def norm(x: str, name: str, out: str) -> dict[str, Any]:
-        return op("layer_norm", [x, f"{name}.gamma", f"{name}.beta"], out, epsilon=1e-5)
-
-    nodes = [
-        op("range", [], "pos", start="P", size="T"),
-        op("gather", ["token_embedding.table", "tokens"], "tok"),
-        op("gather", ["position_embedding.table", "pos"], "at"),
-        op("add", ["tok", "at"], "x0"),
-    ]
-    x = "x0"
-    for i in range(n_layers):
-        a = f"attention_{i}"
-        nodes += [
-            norm(x, f"ln_{i}_a", f"a{i}"),
-            dense(f"a{i}", f"{a}.query", f"q{i}"),
-            dense(f"a{i}", f"{a}.key", f"k{i}"),
-            dense(f"a{i}", f"{a}.value", f"v{i}"),
-            op("cache_write", [f"keys_{i}", f"k{i}"], f"ks{i}", at="P"),
-            op("cache_write", [f"values_{i}", f"v{i}"], f"vs{i}", at="P"),
-            op("attention", [f"q{i}", f"ks{i}", f"vs{i}"], f"h{i}", heads=heads, causal=1),
-            dense(f"h{i}", f"{a}.out", f"o{i}"),
-            op("add", [x, f"o{i}"], f"y{i}"),
-            norm(f"y{i}", f"ln_{i}_b", f"b{i}"),
-            dense(f"b{i}", f"ff_{i}_in", f"f{i}", activation="gelu_erf"),
-            dense(f"f{i}", f"ff_{i}_out", f"g{i}"),
-            op("add", [f"y{i}", f"g{i}"], f"x{i + 1}"),
-        ]
-        x = f"x{i + 1}"
-    nodes += [
-        # Every op from here works on each position alone, so only the last one is needed.
-        op("last_row", [x], "last"),
-        norm("last", "ln_final", "final"),
-        dense("final", "logits", "logits"),
-    ]
-    return {
-        "version": 1,
-        "symbols": {"T": length, "P": length - 1},
-        # P + T is at most the length: plan for the longest run, the whole sequence at once.
-        "plan": {"P": 0},
-        "inputs": [{"name": "tokens", "dtype": "int32", "shape": ["T"]}],
-        "states": [
-            {"name": f"{kind}_{i}", "dtype": "float32", "shape": [length, dim]}
-            for i in range(n_layers)
-            for kind in ("keys", "values")
-        ],
-        "nodes": nodes,
-        "outputs": [{"name": "logits", "node": "logits"}],
-    }
+# How rayo-convert presents the writer to rayo: the logits under their name. The attention is
+# rewritten for a key/value cache, so rayo decodes word by word (rayo docs/CONVERTING.md).
+RAYO_OPTIONS = Options(name="ask-writer", rename={"output_0": "logits"})
 
 
-def _rows(t: Tensor, start: int, stop: int) -> Tensor:
-    """Rows ``start`` .. ``stop - 1`` of a [out, in] kernel or an [out] bias."""
-    if t.scales is None:
-        return Tensor(t.value[start:stop].copy())
-    scales = t.scales if t.axis is None else t.scales[start:stop]
-    return Tensor(t.value[start:stop].copy(), scales.copy(), t.zero_point, t.axis)
+def _required(n_layers: int) -> list[str]:
+    out = []
+    for layer in layers(n_layers):
+        name, kind = layer["name"], layer["kind"]
+        if kind == "embedding":
+            out.append(f"{name}.table")
+        elif kind == "layer_norm":
+            out += [f"{name}.gamma", f"{name}.beta"]
+        elif kind == "causal_self_attention":
+            out += [
+                f"{name}.{p}.{t}"
+                for p in ("query", "key", "value", "out")
+                for t in ("kernel", "bias")
+            ]
+        else:
+            out += [f"{name}.kernel", f"{name}.bias"]
+    return out
 
 
 def read_tflite(path: str | Path, n_layers: int, heads: int) -> Weights:
-    """The weights of the ask writer exported at ``path``. Its attention's one ``qkv`` dense
-    layer becomes three (``query``, ``key``, ``value``): the same rows, so the same products."""
-    tf = require("tensorflow", "train")
-    blob = Path(path).read_bytes()
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", UserWarning)
-        interpreter = tf.lite.Interpreter(model_content=blob)
-    interpreter.allocate_tensors()
-    details = interpreter.get_tensor_details()
-    by_name = {d["name"]: d for d in details}
-    by_index = {d["index"]: d for d in details}
-    ops = interpreter._get_ops_details()  # the graph's op list (private API)
-    tensors: dict[str, Tensor] = {}
-
-    def named(name: str) -> Tensor:
-        d = by_name.get(_PREFIX + name)
-        if d is None:
-            raise ValueError(f"no tensor {name} in the graph")
-        return _tensor(d, interpreter.get_tensor(d["index"]))
-
-    tensors["token_embedding.table"] = named("token_embedding_1/GatherV2/ReadVariableOp")
-    position = named("position_embedding_1/strided_slice")
-    tensors["position_embedding.table"] = Tensor(position.value[0].copy())
-    length, dim = tensors["position_embedding.table"].value.shape
-    for layer in layers(n_layers):
-        if layer["kind"] == "layer_norm":
-            # TFLite: x * (rsqrt(var + eps) * gamma) + (beta - mean * ...): gamma in Reshape.
-            name = layer["name"]
-            tensors[name + ".gamma"] = Tensor(named(name + "_1/Reshape").value.reshape(-1).copy())
-            tensors[name + ".beta"] = Tensor(named(name + "_1/Reshape_1").value.reshape(-1).copy())
-    for o in ops:
-        if o["op_name"] != "FULLY_CONNECTED":
-            continue
-        kernel_detail = by_index[int(o["inputs"][1])]
-        bias_detail = by_index[int(o["inputs"][2])]
-        layer = kernel_detail["name"][len(_PREFIX) :].split("/Tensordot")[0]
-        layer = layer.replace("_1/", ".").removesuffix("_1")  # attention_0.qkv, ff_0_in, ...
-        kernel = _tensor(kernel_detail, interpreter.get_tensor(kernel_detail["index"]))
-        bias = Tensor(interpreter.get_tensor(bias_detail["index"]).reshape(-1).astype(np.float32))
-        if layer.endswith(".qkv"):
-            base = layer.removesuffix(".qkv")
-            for j, part in enumerate(("query", "key", "value")):
-                tensors[f"{base}.{part}.kernel"] = _rows(kernel, j * dim, (j + 1) * dim)
-                tensors[f"{base}.{part}.bias"] = _rows(bias, j * dim, (j + 1) * dim)
-        else:
-            tensors[layer + ".kernel"] = kernel
-            tensors[layer + ".bias"] = bias
-    return Weights(
-        model="ask-writer",
-        source_file=Path(path).name,
-        source_sha256=hashlib.sha256(blob).hexdigest(),
-        source_size_bytes=len(blob),
-        layers=layers(n_layers),
-        tensors=tensors,
-        graph=rayo_graph(n_layers, heads, dim, length),
-    )
+    """The weights of the ask writer exported at ``path``, with the graph rayo decodes them
+    with, both from rayo-convert (:mod:`akili.export.rayo`). Its attention's one ``qkv`` dense
+    layer becomes three (``query``, ``key``, ``value``): the same rows, so the same products.
+    Raises ValueError unless the graph decodes with a cache in ``n_layers`` attention layers
+    of ``heads`` heads."""
+    weights, result = weights_of(path, RAYO_OPTIONS, layers(n_layers), _required(n_layers))
+    attention = [n for n in result.graph["nodes"] if n["op"] == "attention"]
+    if (
+        result.mode != "decode"
+        or len(attention) != n_layers
+        or any(n["heads"] != heads or n["causal"] != 1 for n in attention)
+    ):
+        raise ValueError(
+            f"{Path(path).name}: rayo-convert did not give {n_layers} cached attention layers "
+            f"of {heads} heads: " + "; ".join(result.notes)
+        )
+    return weights
 
 
 def manifest_fields(blob: bytes) -> dict[str, Any]:
