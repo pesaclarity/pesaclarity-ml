@@ -340,6 +340,32 @@ def test_ask_writer_trains_exports_and_matches_keras(tmp_path) -> None:  # type:
     out = sample(lite, replies.random_facts(3, seed=1), 0.8, np.random.default_rng(0))
     assert len(out) == 3
 
+    # The plain weights rayo runs, read out of the TFLite file: the NumPy reference on them
+    # gives the TFLite built-in kernels' logits.
+    import tensorflow as tf
+
+    from akili.ask.writer_weights import WEIGHTS_FILE, export_weights, forward
+    from akili.export.weights import read_weights
+
+    fields = export_weights(path, tmp_path, n_layers=cfg.layers, heads=cfg.heads)
+    weights = read_weights((tmp_path / WEIGHTS_FILE).read_bytes())
+    assert fields["weights_size_bytes"] < path.stat().st_size
+    assert weights.graph is not None
+    assert weights.graph["states"][0]["shape"] == [64, cfg.dim]
+    builtin = tf.lite.Interpreter(
+        model_path=str(path),
+        experimental_op_resolver_type=tf.lite.experimental.OpResolverType.BUILTIN_WITHOUT_DEFAULT_DELEGATES,
+    )
+    builtin.allocate_tensors()
+    builtin.set_tensor(builtin.get_input_details()[0]["index"], x[1:])
+    builtin.invoke()
+    want = builtin.get_tensor(builtin.get_output_details()[0]["index"])[0]
+    got = forward(weights, x[1], cfg.heads)
+    # Exact up to float rounding; at most an int8 rounding flip apart further in, where a
+    # 1e-7 difference can land a value on the other side of a rounding boundary.
+    assert np.abs(got[:5] - want[:5]).max() < 1e-4
+    assert np.abs(got - want).max() < 0.05
+
     from akili.ask.writer import train_ask_writer
 
     train_ask_writer(cfg, tmp_path / "run", evaluate=False)

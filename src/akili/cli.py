@@ -1,6 +1,6 @@
 """Command line: ``akili synth | vectors | reader-vectors | reader-examples | reader |
-ask-examples | ask-reader | ask-reader-weights | ask-reader-probe | ask-writer | epsilon |
-ledger | gate | train | audit | simulate``."""
+ask-examples | ask-reader | ask-reader-weights | ask-reader-probe | ask-writer |
+ask-writer-weights | epsilon | ledger | gate | train | audit | simulate``."""
 
 from __future__ import annotations
 
@@ -145,6 +145,20 @@ def _ask_reader_weights(args: argparse.Namespace) -> int:
     return 0
 
 
+def _ask_writer_weights(args: argparse.Namespace) -> int:
+    from akili.ask.writer import AskWriterConfig
+    from akili.ask.writer_weights import export_weights
+
+    cfg = AskWriterConfig()
+    fields = export_weights(args.model, args.out, n_layers=cfg.layers, heads=cfg.heads)
+    out = Path(args.out) if args.out else Path(args.model).parent
+    print(
+        f"ask writer weights, format {fields['weights_format_version']}: "
+        f"{fields['weights_size_bytes']} bytes at {out / fields['weights_file']}"
+    )
+    return 0
+
+
 def _ask_reader_probe(args: argparse.Namespace) -> int:
     from akili.ask.reader import probe_scores
 
@@ -176,8 +190,8 @@ def _ask_writer(args: argparse.Namespace) -> int:
 
 
 def _add_ask_commands(sub: Any) -> None:
-    """``ask-examples``, ``ask-reader``, ``ask-reader-weights``, ``ask-reader-probe`` and
-    ``ask-writer``."""
+    """``ask-examples``, ``ask-reader``, ``ask-reader-weights``, ``ask-reader-probe``,
+    ``ask-writer`` and ``ask-writer-weights``."""
     p = sub.add_parser("ask-examples", help="regenerate the Ask conformance examples for the app")
     p.add_argument("--out")
     p.add_argument("--check", action="store_true")
@@ -213,6 +227,14 @@ def _add_ask_commands(sub: Any) -> None:
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--skip-evaluation", action="store_true")
     p.set_defaults(func=_ask_writer)
+
+    p = sub.add_parser(
+        "ask-writer-weights",
+        help="write ask-writer.weights, with its rayo graph, from an ask-writer.tflite [train]",
+    )
+    p.add_argument("--model", default="artefacts/ask-writer/ask-writer.tflite")
+    p.add_argument("--out", help="folder to write to (default: beside the model)")
+    p.set_defaults(func=_ask_writer_weights)
 
 
 def _estimated_eligible_clients(cfg: ExperimentConfig) -> int:
