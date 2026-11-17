@@ -112,7 +112,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=1.26,<3" },
     { name = "pydantic", specifier = ">=2.9,<3" },
     { name = "pyyaml", specifier = ">=6.0.2,<7" },
-    { name = "rayo-convert", git = "https://github.com/pesaclarity/rayo?subdirectory=convert&rev=663359ba0787ff3901899525a3f32def6f64bfa3" },
+    { name = "rayo-convert", git = "https://github.com/pesaclarity/rayo?subdirectory=convert&rev=2ca427e452e645672e58e29f8e6387df65ea8fbe" },
     { name = "tensorflow", marker = "extra == 'train'", specifier = ">=2.18,<2.22" },
 ]
 provides-extras = ["train", "fl"]
@@ -1724,7 +1724,7 @@ wheels = [
 [[package]]
 name = "rayo-convert"
 version = "0.1.0"
-source = { git = "https://github.com/pesaclarity/rayo?subdirectory=convert&rev=663359ba0787ff3901899525a3f32def6f64bfa3#663359ba0787ff3901899525a3f32def6f64bfa3" }
+source = { git = "https://github.com/pesaclarity/rayo?subdirectory=convert&rev=2ca427e452e645672e58e29f8e6387df65ea8fbe#2ca427e452e645672e58e29f8e6387df65ea8fbe" }
 dependencies = [
     { name = "flatbuffers" },
     { name = "numpy" },

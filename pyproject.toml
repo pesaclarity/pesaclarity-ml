@@ -13,7 +13,7 @@ dependencies = [
     "pydantic>=2.9,<3",
     "pyyaml>=6.0.2,<7",
     # rayo's model converter, pinned to a rayo commit: the plain weights' graph (docs/WEIGHTS.md).
-    "rayo-convert @ git+https://github.com/pesaclarity/rayo@663359ba0787ff3901899525a3f32def6f64bfa3#subdirectory=convert",
+    "rayo-convert @ git+https://github.com/pesaclarity/rayo@2ca427e452e645672e58e29f8e6387df65ea8fbe#subdirectory=convert",
 ]
 
 [project.optional-dependencies]
