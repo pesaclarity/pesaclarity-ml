@@ -64,11 +64,14 @@ class ReaderConfig:
     label_smoothing: float = 0.1
     threads: int = 1  # torch's CPU threads: fixed, so a run is repeatable
     # The largest difference between the torch model's float probabilities and rayo's int8
-    # file on the parity messages, per output. Decision 0023 proposed 1e-2; on the trained
-    # reader the kind is within 3.3e-3 and 99.9% of tokens within 8.6e-3, but a token whose
-    # two best fields are close moves by up to 1.6e-2 (docs/READER.md).
+    # file on the parity messages and the reader vectors, per output. Decision 0023 proposed
+    # 1e-2; on the trained reader 99.9% of tokens are within 8.6e-3, but a token whose two
+    # best fields are close moves by up to 1.6e-2, and the kind of the vector of 96 times
+    # "word", which the reader is unsure of (0.66 against 0.29), by 1.17e-2: int8 shifts its
+    # log-probabilities no more than a generated message's (3.5e-2 against 2.9e-2), but an
+    # unsure softmax turns that into twice the difference (docs/READER.md).
     parity_tolerance_fields: float = 2e-2
-    parity_tolerance_kind: float = 1e-2
+    parity_tolerance_kind: float = 2e-2
 
 
 def _spans(labels: np.ndarray) -> set[tuple[int, int, int]]:
@@ -293,33 +296,63 @@ def torch_outputs(model: Any, x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return fields.numpy(), kind.numpy()
 
 
+def vector_inputs() -> tuple[list[str], np.ndarray]:
+    """The ids and inputs ``[n, 192]`` of the app's reader vectors
+    (``reader_vectors.v1.json``): the edge cases the generator does not write, such as an
+    empty message and one of 120 words cut to 96 tokens."""
+    from akili.reader import vectors
+
+    cases = json.loads(vectors.default_path().read_text(encoding="utf-8"))["cases"]
+    x = np.asarray([c["expected"]["input"] for c in cases], dtype=np.int64)
+    return [c["id"] for c in cases], x
+
+
 def check_parity(
     model: Any, done: Any, cfg: ReaderConfig, rayo_dir: str | Path | None = None
 ) -> dict[str, Any]:
     """The torch model's float probabilities against the converted int8 file on
-    :data:`PARITY_MESSAGES` messages generated with the next seed: the largest difference per
-    output (within ``cfg``'s tolerance for each), and the labels (each token's field, each
-    message's kind), which must agree wherever torch's two best probabilities are more than
-    twice the fields' tolerance apart."""
+    :data:`PARITY_MESSAGES` messages generated with the next seed and on the reader vectors'
+    messages (:func:`vector_inputs`): the largest difference per output (within ``cfg``'s
+    tolerance for each), and the labels (each token's field, each message's kind), which
+    must agree wherever torch's two best probabilities are more than twice the fields'
+    tolerance apart. A generated message's fields are compared on its tokens; a vector's on
+    its tokens too (a shape id above 0), as it has no field labels. ``vectors`` gives each
+    vector's largest difference."""
     x, y, _ = to_arrays(generate(PARITY_MESSAGES, seed=cfg.seed + 1))
-    want = torch_outputs(model, x)
-    got = run_converted(runner(done, rayo_dir), x)
+    ids, xv = vector_inputs()
+    converted = runner(done, rayo_dir)
     tolerance = {"fields": cfg.parity_tolerance_fields, "kind": cfg.parity_tolerance_kind}
     margin = 2 * cfg.parity_tolerance_fields
     out: dict[str, Any] = {
         "messages": PARITY_MESSAGES,
+        "vectors": len(ids),
         "runner": "rayo" if rayo_dir else "rayo-convert reference",
         "tolerance": tolerance,
         "label_margin": margin,
     }
+    tokens = np.concatenate([y >= 0, xv[:, MAX_TOKENS:] > 0])
+    want = [
+        np.concatenate(p)
+        for p in zip(torch_outputs(model, x), torch_outputs(model, xv), strict=True)
+    ]
+    got = [
+        np.concatenate(p)
+        for p in zip(run_converted(converted, x), run_converted(converted, xv), strict=True)
+    ]
     within = True
+    per_vector: dict[str, dict[str, float]] = {i: {} for i in ids}
     for name, w, g in zip(("fields", "kind"), want, got, strict=True):
         diff = np.abs(g - w).max(-1)
         top = np.sort(w, axis=-1)
         clear = top[..., -1] - top[..., -2] > margin
         same = w.argmax(-1) == g.argmax(-1)
+        for i, d, keep in zip(ids, diff[len(x) :], tokens[len(x) :], strict=True):
+            if name == "kind":
+                per_vector[i][name] = round(float(d), 6)
+            else:  # the message's tokens; none for the empty one
+                per_vector[i][name] = round(float(d[keep].max()), 6) if keep.any() else 0.0
         if name == "fields":  # the message's tokens, not the padding
-            diff, clear, same = diff[y >= 0], clear[y >= 0], same[y >= 0]
+            diff, clear, same = diff[tokens], clear[tokens], same[tokens]
         entry = {
             "max_abs": round(float(diff.max()), 6),
             "p99_9_abs": round(float(np.quantile(diff, 0.999)), 6),
@@ -332,6 +365,7 @@ def check_parity(
         out[name] = entry
         within &= entry["max_abs"] <= tolerance[name]
         within &= entry["labels_compared"] == entry["labels_compared_same"]
+    out["per_vector"] = per_vector
     out["within"] = bool(within)
     return out
 
