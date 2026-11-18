@@ -1,8 +1,8 @@
-"""Train, evaluate and export the Keras message reader as TFLite (needs the [train] extra).
+"""The Keras message reader, exported as TFLite (needs the [train] extra). Not the release path.
 
-The message reader moves to PyTorch (pesaclarity/docs, decision 0023); this module keeps the
-Keras model, apart from the config and scores it shares (:mod:`akili.reader.train`), until
-TensorFlow is removed (stage 5).
+The message reader moved to PyTorch (:mod:`akili.reader.train`, pesaclarity/docs decision
+0023); this is the Keras model it replaced, kept so the old export can be reproduced until
+TensorFlow is removed (stage 5). ``akili reader --keras`` runs it.
 
 The network: token and shape embeddings, two 1-D convolutions that see two tokens either side,
 a dilated convolution for a whole clause, then a label per token and, from the pooled tokens,

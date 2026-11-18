@@ -1,7 +1,7 @@
 # pesaclarity-ml (akili)
 
 Akili is the machine learning side of Pesa Clarity, the free, ad-free app for Android and iPhone that turns M-Pesa
-and bank SMS into a daily plan. It holds the small models that run on the phone (TensorFlow Lite): the
+and bank SMS into a daily plan. It holds the small models that run on the phone (Keras and TFLite, moving to PyTorch and rayo): the
 transaction categoriser, the message reader, and Ask's question reader and reply writer. Around
 them sit a synthetic data generator, centralised and DP-SGD training, the client side of
 federated learning, TFLite export with a size budget, MLflow tracking, and the privacy release gate
@@ -25,7 +25,7 @@ uv run akili epsilon --config configs/dp-sgd.yaml
 uv run akili ledger                       # what every DP run so far has spent, per dataset
 
 uv sync --extra train --extra fl          # add TensorFlow, MLflow and Flower
-uv sync --extra torch                     # PyTorch (CPU) and onnx: the export path models move to
+uv sync --extra torch                     # PyTorch (CPU) and onnx: the message reader, and the export path models move to
 uv run akili train --config configs/smoke.yaml
 uv run akili train --config configs/dp-sgd.yaml
 uv run akili simulate --config configs/federated-smoke.yaml
@@ -61,13 +61,14 @@ feature schema version, so the app can refuse a model it cannot feed.
 A second, separate model reads the fields of bank and wallet messages that no parser rule
 matched, for the app's review inbox: amount, payee, date, time, balance, reference, fee, and
 whether it is money out, money in or not a transaction. It tags each token with a small 1-D
-convolutional network (about 200 KB as TFLite) and trains on synthetic messages only, built from
+convolutional network, trained in PyTorch and shipped as rayo's int8 `reader.weights` (about
+188 KB; no TFLite file), and trains on synthetic messages only, built from
 invented institutions, people and amounts in eleven sentence layouts. The person confirms every
 suggestion. [docs/READER.md](docs/READER.md) is the spec the app implements, with conformance
 vectors in [`reader_vectors.v1.json`](src/akili/resources/reader_vectors.v1.json).
 
 ```sh
-uv run akili reader --out artefacts/reader      # train, score unseen layouts, export
+uv run akili reader --out artefacts/reader      # [torch] train, score unseen layouts, export
 uv run akili reader-vectors                     # regenerate the app's test vectors
 uv run akili reader-examples                    # regenerate docs/READER-EXAMPLES.md
 ```
@@ -77,9 +78,11 @@ honest measure for wording the app has never seen. Training covers eleven layout
 modelled on public M-PESA, Equity and KCB samples (receipt first, "Your transaction of ...", a
 16-character code first), and one in the style of Sacco alerts (deposits and loan repayments,
 "Dear Member, your deposit of ..."). On synthetic messages in an unseen layout the mean F1 is
-about 0.79 for the amount, 0.70 for the payee and 0.98 for the date; payee-first sentences
-("JOHN DOE has sent you ..."), the bank-to-wallet layouts and Sacco alerts (where the Sacco
-itself is the payee) are the weak spots. Layouts it was trained on score close to 1. Real
+about 0.85 for the amount, 0.72 for the payee and 1.00 for the date, scored on the int8 file
+as rayo runs it (the Keras model it replaced: 0.79, 0.70 and 0.98); key-value messages
+("Amount: ... Merchant: ..."), payee-first sentences ("JOHN DOE has sent you ..."), the
+bank-to-wallet layouts and Sacco alerts (where the Sacco itself is the payee) are the weak
+spots. Layouts it was trained on score close to 1. Real
 messages will score lower.
 [docs/READER-EXAMPLES.md](docs/READER-EXAMPLES.md) shows sample messages for each layout with their
 fields marked.
@@ -191,7 +194,9 @@ src/akili/
   features.py             feature extraction shared with the app
   synthetic.py            fake transactions for tests and smoke training
   vectors.py              feature test vectors (`akili vectors`)
-  reader/                 the message reader: tokens, synthetic messages, training
+  reader/                 the message reader: tokens, synthetic messages, the torch
+                          model and training [torch] (keras_train.py: the old Keras
+                          reader [train], until TensorFlow is removed)
   ask/                    Ask: questions, replies, reader and writer training, examples
   model.py                the Keras categoriser            [train]
   train/                  centralised and DP-SGD training   [train]

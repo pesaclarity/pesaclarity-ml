@@ -76,18 +76,34 @@ def _reader_examples(args: argparse.Namespace) -> int:
     return 0
 
 
-def _reader(args: argparse.Namespace) -> int:
-    from akili.reader.keras_train import MODEL_FILE, ReaderConfig, train_reader
+def _train_reader(args: argparse.Namespace) -> tuple[dict[str, Any], str]:
+    evaluate = not args.skip_evaluation
+    if args.keras:
+        from akili.reader import keras_train
 
-    cfg = ReaderConfig(messages=args.messages, epochs=args.epochs, seed=args.seed)
-    report = train_reader(cfg, args.out, evaluate=not args.skip_evaluation)
+        cfg = keras_train.ReaderConfig(messages=args.messages, epochs=args.epochs, seed=args.seed)
+        return keras_train.train_reader(cfg, args.out, evaluate=evaluate), keras_train.MODEL_FILE
+    from akili.reader import train
+    from akili.reader.model import WEIGHTS_FILE
+
+    cfg = train.ReaderConfig(messages=args.messages, epochs=args.epochs, seed=args.seed)
+    return train.train_reader(cfg, args.out, evaluate, args.rayo_dir), WEIGHTS_FILE
+
+
+def _reader(args: argparse.Namespace) -> int:
+    report, file_name = _train_reader(args)
     unseen = report["unseen_layouts"]
     if unseen is not None:
         print("unseen layouts, mean F1:")
         for name, f1 in unseen["mean_f1"].items():
             print(f"  {name:<13} {f1:.3f}")
         print(f"  kind accuracy {unseen['mean_kind_accuracy']:.3f}")
-    print(f"reader {report['model_size_bytes']} bytes at {Path(args.out) / MODEL_FILE}")
+    if "parity" in report:
+        p = report["parity"]
+        f, k = p["fields"]["max_abs"], p["kind"]["max_abs"]
+        print(f"int8 against torch, largest difference: fields {f:.4f}, kind {k:.4f}")
+    size = report.get("weights_size_bytes", report.get("model_size_bytes"))
+    print(f"reader {size} bytes at {Path(args.out) / file_name}")
     return 0
 
 
@@ -494,12 +510,23 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--check", action="store_true")
     p.set_defaults(func=_reader_examples)
 
-    p = sub.add_parser("reader", help="train and export the message reader [train]")
+    p = sub.add_parser("reader", help="train the message reader and export reader.weights [torch]")
     p.add_argument("--out", default="artefacts/reader")
     p.add_argument("--messages", type=int, default=30_000)
     p.add_argument("--epochs", type=int, default=8)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--skip-evaluation", action="store_true")
+    p.add_argument(
+        "--rayo-dir",
+        default=None,
+        help="a rayo checkout whose C library runs the scores (default: RAYO_DIR; without "
+        "one, rayo-convert's reference runs them)",
+    )
+    p.add_argument(
+        "--keras",
+        action="store_true",
+        help="the old Keras reader and reader.tflite instead [train]; removed with TensorFlow",
+    )
     p.set_defaults(func=_reader)
 
     _add_ask_commands(sub)

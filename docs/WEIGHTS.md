@@ -1,14 +1,19 @@
 # Plain weights format, version 1
 
-pesaclarity-app runs its small models in Dart instead of a native runtime (pesaclarity/docs,
-decision 0019). For each such model akili writes, beside the TFLite file, a `.weights` file:
-the tensors TFLite runs, in a small format any language can read in a few dozen lines. The
-TFLite file stays the reference: akili's tests and evaluation run it, and the weights are read
-back out of it ([`akili.ask.reader_weights`](../src/akili/ask/reader_weights.py)), so they are
-byte for byte the int8 and float32 values in it.
+pesaclarity-app runs its small models in Dart or in rayo, its own runtime, instead of TFLite
+(pesaclarity/docs, decisions 0019 and 0020). Each such model ships as a `.weights` file: its
+tensors and rayo's graph, in a small format any language can read in a few dozen lines.
 
-Two models have one: the Ask reader (`ask-reader.weights`, about 251 KB, run in Dart or by
-rayo) and the Ask writer (`ask-writer.weights`, about 592 KB, run by rayo).
+Three models have one:
+
+- the Ask reader (`ask-reader.weights`, about 251 KB, run in Dart or by rayo) and the Ask
+  writer (`ask-writer.weights`, about 592 KB, run by rayo), still trained in Keras: akili
+  writes the file beside the TFLite file and reads it back out of it
+  ([`akili.ask.reader_weights`](../src/akili/ask/reader_weights.py)), so the weights are byte
+  for byte the int8 and float32 values in it, and the TFLite file stays the reference;
+- the message reader (`reader.weights`, 188,052 bytes, run by rayo), trained in PyTorch and
+  exported through ONNX ([below](#from-a-pytorch-model)). It has no TFLite file: the
+  `.weights` file is what is scored, budgeted and listed in the manifest.
 
 ## Layout
 
@@ -48,8 +53,9 @@ magic, version or sizes do not fit, rather than guessing.
 
 - `format_version`: the same number as bytes 4-7.
 - `model`: which model this is; the reader of a file knows the network it runs.
-- `source`: the TFLite file the weights were read from, with its SHA-256 and size, so the
-  weights trace back to the file the release scored.
+- `source`: the file the weights were read from (the TFLite file, or for a PyTorch model the
+  ONNX file rayo-convert converted), with its SHA-256 and size, so the weights trace back to
+  the model the release scored.
 - `layers`: the layers in the order they run. `kind` is `embedding`, `conv1d` (with kernel
   `size` and `dilation`, "same" padding) or `dense`; `activation` is `relu` or `softmax`. A
   program that runs the model checks this list is the one it implements.
@@ -133,6 +139,9 @@ The model's manifest carries the file beside the TFLite fields, which stay for p
 
 The app checks the size and SHA-256 before it reads the weights, and uses its rules instead of
 the model when they do not match or the version is one it does not read.
+
+A model with no TFLite file (the message reader) has only these fields for its file, and its
+size budget is on the `.weights` file ([READER.md](READER.md#manifest)).
 
 ## The Ask reader on these weights
 
@@ -222,5 +231,11 @@ layer norm, masked mean and max pooling): float32 on rayo gives torch's outputs 
 int8 the same labels, probabilities within 2e-2 (these modules have random weights; the
 trained models are held to their own tolerance as they move).
 
-The TFLite path above stays as it is until the last model has moved.
+The message reader is the first model on this path ([READER.md](READER.md#the-model-and-its-file)):
+[`akili.reader.model`](../src/akili/reader/model.py) keeps the Keras layer names, the export
+checks every layer's tensors, and its trained weights are held to their own tolerance against
+torch: 2e-2 for the fields, 1e-2 for the kind (measured: fields 1.6e-2 at worst, on a token
+whose two best labels are close, and 99.9% of tokens within 8.6e-3; kind 3.3e-3).
+
+The TFLite path above stays as it is for the Ask models until they have moved.
 
