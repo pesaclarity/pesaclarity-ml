@@ -9,22 +9,23 @@ for byte the int8 and float32 tensors TFLite runs, not a second conversion of th
 :func:`akili.ask.reader.build_ask_reader` run the way TFLite runs this dynamic-range-quantised
 model, so it gives TFLite's outputs to about 1e-5. The app's Dart code is a copy of it.
 
-Reading the file needs the [train] extra (TensorFlow's interpreter); :func:`forward` needs only
-NumPy.
+Reading the file is rayo-convert's (pesaclarity/rayo, a pinned dependency): it maps the TFLite
+graph to rayo's ops and gives its tensors as they are in the file, with no TensorFlow.
+:func:`forward` needs only NumPy.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-import warnings
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+from rayo_convert import Options
 
-from akili._optional import require
-from akili.export.weights import FORMAT_VERSION, Tensor, Weights
+from akili.export.rayo import weights_of
+from akili.export.weights import FORMAT_VERSION, Weights
 from akili.reader.tokens import MAX_TOKENS
 
 WEIGHTS_FILE = "ask-reader.weights"
@@ -46,153 +47,28 @@ LAYERS: list[dict[str, Any]] = [
 ]
 
 
-def rayo_graph() -> dict[str, Any]:
-    """The graph rayo (the app's native runtime) runs these weights with: LAYERS wired as
-    build_ask_reader wires them, each int8 layer run as TFLite runs it (docs/WEIGHTS.md,
-    "The rayo graph"). Inputs are the encoding's two halves, token ids and shape ids."""
+# How rayo-convert presents the reader to rayo: the encoding's two halves as two inputs (token
+# ids, then shape ids, each [T]), the slots before the intent.
+RAYO_OPTIONS = Options(
+    name="ask-reader",
+    split_inputs={"question": [("tokens", MAX_TOKENS), ("shapes", MAX_TOKENS)]},
+    outputs=["slots", "intent"],
+)
 
-    def conv(x: str, name: str, out: str) -> dict[str, Any]:
-        spec = next(layer for layer in LAYERS if layer["name"] == name)
-        return {
-            "op": "conv1d",
-            "inputs": [x, f"{name}.kernel", f"{name}.bias"],
-            "output": out,
-            "size": spec["size"],
-            "dilation": spec["dilation"],
-            "activation": "relu",
-            "input_quantization": "tensor_phases",
-        }
 
-    def dense(x: str, name: str, out: str, activation: str) -> dict[str, Any]:
-        return {
-            "op": "dense",
-            "inputs": [x, f"{name}.kernel", f"{name}.bias"],
-            "output": out,
-            "activation": activation,
-            "input_quantization": "rows",
-        }
-
-    def op(kind: str, inputs: list[str], out: str, **attrs: Any) -> dict[str, Any]:
-        return {"op": kind, "inputs": inputs, "output": out, **attrs}
-
-    nodes = [
-        op("gather", ["token_embedding.table", "tokens"], "tok"),
-        op("gather", ["shape_embedding.table", "shapes"], "shp"),
-        op("concat", ["tok", "shp"], "emb"),
-        op("compare", ["shapes"], "mask", comparison="greater", value=0),
-        conv("emb", "conv_1", "c1"),
-        conv("c1", "conv_2", "c2"),
-        op("add", ["c1", "c2"], "x2"),
-        conv("x2", "conv_3", "c3"),
-        op("add", ["x2", "c3"], "x"),
-        op("concat", ["x", "emb"], "xe"),
-        dense("xe", "slot_hidden", "sh", "relu"),
-        conv("sh", "slot_context", "sc"),
-        op("add", ["sh", "sc"], "s2"),
-        conv("s2", "slot_span", "ss"),
-        op("add", ["s2", "ss"], "s3"),
-        dense("s3", "slots", "slot_logits", "none"),
-        op("softmax", ["slot_logits"], "slots"),
-        op("masked_reduce", ["x", "mask"], "pmax", reduction="max", fill=-10000),
-        op("masked_reduce", ["x", "mask"], "pmean", reduction="mean"),
-        op("masked_reduce", ["emb", "mask"], "emean", reduction="mean"),
-        op("concat", ["pmax", "pmean"], "p1"),
-        op("concat", ["p1", "emean"], "pooled"),
-        dense("pooled", "intent_hidden", "ih", "relu"),
-        dense("ih", "intent", "intent_logits", "none"),
-        op("softmax", ["intent_logits"], "intent"),
+def _required() -> list[str]:
+    return [
+        f"{layer['name']}.{part}"
+        for layer in LAYERS
+        for part in (("table",) if layer["kind"] == "embedding" else ("kernel", "bias"))
     ]
-    return {
-        "version": 1,
-        "symbols": {"T": MAX_TOKENS},
-        "inputs": [
-            {"name": "tokens", "dtype": "int32", "shape": ["T"]},
-            {"name": "shapes", "dtype": "int32", "shape": ["T"]},
-        ],
-        "nodes": nodes,
-        "outputs": [{"name": "slots", "node": "slots"}, {"name": "intent", "node": "intent"}],
-    }
-
-
-def _tensor(detail: dict[str, Any], value: np.ndarray) -> Tensor:
-    if value.dtype.name != "int8":
-        return Tensor(value.astype(np.float32))
-    q = detail["quantization_parameters"]
-    scales = np.asarray(q["scales"], dtype=np.float32)
-    zero_points = np.asarray(q["zero_points"])
-    if zero_points.size and np.any(zero_points != zero_points.flat[0]):
-        raise ValueError(f"{detail['name']}: zero points differ by channel")
-    return Tensor(
-        value.copy(),
-        scales,
-        zero_point=int(zero_points.flat[0]) if zero_points.size else 0,
-        axis=int(q["quantized_dimension"]) if scales.size > 1 else None,
-    )
 
 
 def read_tflite(path: str | Path) -> Weights:
-    """The weights of the ask reader exported at ``path``."""
-    tf = require("tensorflow", "train")
-    blob = Path(path).read_bytes()
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", UserWarning)
-        interpreter = tf.lite.Interpreter(model_content=blob)
-    interpreter.allocate_tensors()
-    details = interpreter.get_tensor_details()
-    by_index = {d["index"]: d for d in details}
-    ops = interpreter._get_ops_details()  # the graph's op list (private API)
-    tensors: dict[str, Tensor] = {}
-
-    for layer in LAYERS:
-        name = layer["name"]
-        prefix = f"akili_ask_reader_1/{name}_1/"
-        if layer["kind"] == "embedding":
-            tables = [
-                d
-                for d in details
-                if d["name"].startswith(prefix + "GatherV2/ReadVariableOp") and len(d["shape"]) == 2
-            ]
-            if len(tables) != 1:
-                raise ValueError(f"{name}: {len(tables)} tables in the graph")
-            d = tables[0]
-            tensors[name + ".table"] = _tensor(d, interpreter.get_tensor(d["index"]))
-            continue
-        # The convolution or dense op whose kernel is a constant named after the layer.
-        layer_ops = [
-            o
-            for o in ops
-            if o["op_name"] in ("CONV_2D", "FULLY_CONNECTED")
-            and by_index[o["inputs"][1]]["name"].startswith(prefix)
-        ]
-        if len(layer_ops) != 1:
-            raise ValueError(f"{name}: {len(layer_ops)} kernels in the graph")
-        op = layer_ops[0]
-        d = by_index[int(op["inputs"][1])]
-        tensors[name + ".kernel"] = _tensor(d, interpreter.get_tensor(d["index"]))
-        # The bias is the op's own, or (dilated convolutions, Tensordot denses) added after it
-        # in a separate ADD; the two never both hold one, but summing them is safe.
-        biases = []
-        if op["inputs"][2] >= 0:
-            biases.append(interpreter.get_tensor(int(op["inputs"][2])))
-        for d in details:
-            if (
-                d["name"] in (prefix + "Squeeze", prefix + "BiasAdd/ReadVariableOp")
-                and len(d["shape"]) == 1
-            ):
-                biases.append(interpreter.get_tensor(d["index"]))
-        if not biases or any(b.dtype.name != "float32" for b in biases):
-            raise ValueError(f"{name}: no float32 bias in the graph")
-        tensors[name + ".bias"] = Tensor(np.sum(biases, axis=0, dtype=np.float32))
-
-    return Weights(
-        model="ask-reader",
-        source_file=Path(path).name,
-        source_sha256=hashlib.sha256(blob).hexdigest(),
-        source_size_bytes=len(blob),
-        layers=LAYERS,
-        tensors=tensors,
-        graph=rayo_graph(),
-    )
+    """The weights of the ask reader exported at ``path``, with the graph rayo runs them with,
+    both from rayo-convert (:mod:`akili.export.rayo`)."""
+    weights, _ = weights_of(path, RAYO_OPTIONS, LAYERS, _required())
+    return weights
 
 
 def manifest_fields(blob: bytes) -> dict[str, Any]:
