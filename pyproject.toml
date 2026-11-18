@@ -16,7 +16,7 @@ dependencies = [
     # [tflite]: it reads the TFLite files the Keras models export (until they move to torch).
     # This commit is pesaclarity/rayo's feat/convert-onnx-int8 (int8 from float ONNX graphs);
     # the pin moves to rayo's main once that is merged.
-    "rayo-convert[tflite] @ git+https://github.com/pesaclarity/rayo@f431f85ef69fde4af0e905fae7c605218894cf90#subdirectory=convert",
+    "rayo-convert[tflite] @ git+https://github.com/pesaclarity/rayo@054c8311619f60b38fed07c8042cf9564e36126f#subdirectory=convert",
 ]
 
 [project.optional-dependencies]
