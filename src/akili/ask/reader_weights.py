@@ -1,17 +1,21 @@
-"""The ask reader's plain weights, read out of its exported TFLite file.
+"""The Ask reader's plain weights: its layers, the Keras model's file read out, and the forward
+pass the app's Dart reader copies.
 
-The app runs the ask reader in Dart, not TFLite, and reads its weights from
-``ask-reader.weights`` (format: [docs/WEIGHTS.md](../../../docs/WEIGHTS.md)). They are read
-out of the very ``ask-reader.tflite`` that :mod:`akili.ask.keras_reader` exports, so they are
-byte for byte the int8 and float32 tensors TFLite runs, not a second conversion of the Keras model.
+The app runs the Ask reader on rayo (in Dart where rayo cannot load) from
+``ask-reader.weights`` (format: [docs/WEIGHTS.md](../../../docs/WEIGHTS.md)). Since decision
+0023 stage 3 the file is the PyTorch model's (:mod:`akili.ask.reader_model`), quantised to
+int8 by rayo-convert from its ONNX graph (:func:`akili.ask.reader.export_module`). The Keras
+model's (:mod:`akili.ask.keras_reader`) is read out of its ``ask-reader.tflite``
+(:func:`read_tflite`), so it is byte for byte the int8 and float32 tensors TFLite ran; both
+have the same layers, tensors and layout.
 
-:func:`forward` is the reference forward pass on those weights, in NumPy: the layers of
-:func:`akili.ask.keras_reader.build_ask_reader` run the way TFLite runs this
-dynamic-range-quantised model, so it gives TFLite's outputs to about 1e-5. The app's Dart code
-is a copy of it.
+:func:`forward` is the reference forward pass on those weights, in NumPy, the int8 layers run
+the way TFLite's hybrid kernels (and rayo) run them: it gives TFLite's outputs to about 1e-5
+on the Keras file, and rayo's to about 1e-4 on the torch one. The app's Dart code is a copy
+of it.
 
-Reading the file is rayo-convert's (pesaclarity/rayo, a pinned dependency): it maps the TFLite
-graph to rayo's ops and gives its tensors as they are in the file, with no TensorFlow.
+Reading a TFLite file is rayo-convert's (pesaclarity/rayo, a pinned dependency): it maps the
+TFLite graph to rayo's ops and gives its tensors as they are in the file, with no TensorFlow.
 :func:`forward` needs only NumPy.
 """
 
@@ -26,9 +30,10 @@ import numpy as np
 from rayo_convert import Options
 
 from akili.export.rayo import weights_of
-from akili.export.weights import FORMAT_VERSION, Weights
+from akili.export.weights import FORMAT_VERSION, Weights, read_weights
 from akili.reader.tokens import MAX_TOKENS
 
+MODEL_NAME = "ask-reader"
 WEIGHTS_FILE = "ask-reader.weights"
 
 # The layers in the order they run, as in build_ask_reader. The tensors of layer ``x`` are
@@ -51,13 +56,14 @@ LAYERS: list[dict[str, Any]] = [
 # How rayo-convert presents the reader to rayo: the encoding's two halves as two inputs (token
 # ids, then shape ids, each [T]), the slots before the intent.
 RAYO_OPTIONS = Options(
-    name="ask-reader",
+    name=MODEL_NAME,
     split_inputs={"question": [("tokens", MAX_TOKENS), ("shapes", MAX_TOKENS)]},
     outputs=["slots", "intent"],
 )
 
 
-def _required() -> list[str]:
+def required_tensors() -> list[str]:
+    """The tensors of :data:`LAYERS`, each layer's ``.table`` or ``.kernel`` and ``.bias``."""
     return [
         f"{layer['name']}.{part}"
         for layer in LAYERS
@@ -65,10 +71,28 @@ def _required() -> list[str]:
     ]
 
 
+def run_weights(data: bytes, rayo_dir: str | Path | None = None) -> Any:
+    """A runner of the weights file ``data`` for :func:`akili.ask.reader.probe_scores`: on
+    rayo's C library when ``rayo_dir`` is a rayo checkout, else on :func:`forward`."""
+    from akili.export.onnx import RayoRunner
+
+    if rayo_dir:
+        from akili.ask.reader import converted_run
+
+        return converted_run(RayoRunner(data, rayo_dir))
+    w = read_weights(data)
+
+    def run(x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        outs = [forward(w, row) for row in np.asarray(x)]
+        return np.stack([i for i, _ in outs]), np.stack([s for _, s in outs])
+
+    return run
+
+
 def read_tflite(path: str | Path) -> Weights:
     """The weights of the ask reader exported at ``path``, with the graph rayo runs them with,
     both from rayo-convert (:mod:`akili.export.rayo`)."""
-    weights, _ = weights_of(path, RAYO_OPTIONS, LAYERS, _required())
+    weights, _ = weights_of(path, RAYO_OPTIONS, LAYERS, required_tensors())
     return weights
 
 

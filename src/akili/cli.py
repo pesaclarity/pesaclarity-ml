@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -122,21 +123,46 @@ def _ask_examples(args: argparse.Namespace) -> int:
     return 0
 
 
-def _ask_reader(args: argparse.Namespace) -> int:
-    from akili.ask.keras_reader import MODEL_FILE, train_ask_reader
+def _train_ask_reader(args: argparse.Namespace) -> tuple[dict[str, Any], str]:
     from akili.ask.reader import AskReaderConfig
 
     cfg = AskReaderConfig(questions=args.questions, epochs=args.epochs, seed=args.seed)
-    report = train_ask_reader(cfg, args.out, evaluate=not args.skip_evaluation)
+    evaluate = not args.skip_evaluation
+    if args.keras:
+        from akili.ask import keras_reader
+
+        return keras_reader.train_ask_reader(cfg, args.out, evaluate), keras_reader.MODEL_FILE
+    from akili.ask.reader import train_ask_reader
+    from akili.ask.reader_weights import WEIGHTS_FILE
+
+    return train_ask_reader(cfg, args.out, evaluate, args.rayo_dir, args.jobs), WEIGHTS_FILE
+
+
+def _ask_reader(args: argparse.Namespace) -> int:
+    report, file_name = _train_ask_reader(args)
     unseen = report["unseen_templates"]
     if unseen is not None:
         print(f"unseen templates: intent accuracy {unseen['mean_intent_accuracy']:.3f}")
         for name, f1 in unseen["mean_slot_f1"].items():
             print(f"  {name:<9} F1 {f1:.3f}")
+        for key in ("v2", "v3"):
+            if unseen.get(key):
+                v = unseen[key]
+                print(
+                    f"  {key} templates: intent accuracy {v['mean_intent_accuracy']:.3f}, "
+                    f"slot F1 {v['mean_slot_f1']:.3f}"
+                )
     _print_probes(report)
+    if "parity" in report:
+        p = report["parity"]
+        print(
+            "int8 against torch, largest difference: "
+            f"intent {p['intent']['max_abs']:.4f}, slots {p['slots']['max_abs']:.4f}"
+        )
+    size = report.get("weights_size_bytes", report.get("model_size_bytes"))
     print(
-        f"ask reader {report['parameters']} parameters, {report['model_size_bytes']} bytes at "
-        f"{Path(args.out) / MODEL_FILE}"
+        f"ask reader {report['parameters']} parameters, {size} bytes at "
+        f"{Path(args.out) / file_name}"
     )
     return 0
 
@@ -178,9 +204,17 @@ def _ask_writer_weights(args: argparse.Namespace) -> int:
 
 
 def _ask_reader_probe(args: argparse.Namespace) -> int:
-    from akili.ask.keras_reader import probe_scores
+    model = Path(args.model)
+    if model.suffix == ".tflite":
+        from akili.ask.keras_reader import probe_scores
 
-    report = probe_scores(Path(args.model))
+        report = probe_scores(model)
+    else:
+        from akili.ask.reader import probe_scores as scores_of
+        from akili.ask.reader_weights import run_weights
+
+        rayo = args.rayo_dir if args.rayo_dir is not None else os.environ.get("RAYO_DIR")
+        report = scores_of(run_weights(model.read_bytes(), rayo or None))
     _print_probes(report)
     if args.out:
         Path(args.out).write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
@@ -215,12 +249,33 @@ def _add_ask_commands(sub: Any) -> None:
     p.add_argument("--check", action="store_true")
     p.set_defaults(func=_ask_examples)
 
-    p = sub.add_parser("ask-reader", help="train and export the ask reader [train]")
+    p = sub.add_parser(
+        "ask-reader", help="train the ask reader and export ask-reader.weights [torch]"
+    )
     p.add_argument("--out", default="artefacts/ask-reader")
     p.add_argument("--questions", type=int, default=120_000)
     p.add_argument("--epochs", type=int, default=20)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--skip-evaluation", action="store_true")
+    p.add_argument(
+        "--jobs",
+        type=int,
+        default=1,
+        help="held-out folds to train at a time, each in a process of its own (the scores "
+        "are the same for any number)",
+    )
+    p.add_argument(
+        "--rayo-dir",
+        default=None,
+        help="a rayo checkout whose C library runs the scores (default: RAYO_DIR; without "
+        "one, rayo-convert's reference runs them)",
+    )
+    p.add_argument(
+        "--keras",
+        action="store_true",
+        help="train the old Keras reader and export ask-reader.tflite instead [train]; "
+        "until TensorFlow is removed",
+    )
     p.set_defaults(func=_ask_reader)
 
     p = sub.add_parser(
@@ -232,10 +287,18 @@ def _add_ask_commands(sub: Any) -> None:
     p.set_defaults(func=_ask_reader_weights)
 
     p = sub.add_parser(
-        "ask-reader-probe", help="score an ask-reader.tflite on the hard and app questions [train]"
+        "ask-reader-probe",
+        help="score an ask-reader.weights (or a Keras ask-reader.tflite [train]) on the hard, "
+        "app, misses and conformance questions",
     )
-    p.add_argument("--model", default="artefacts/ask-reader/ask-reader.tflite")
+    p.add_argument("--model", default="artefacts/ask-reader/ask-reader.weights")
     p.add_argument("--out", help="write the scores and readings as JSON")
+    p.add_argument(
+        "--rayo-dir",
+        default=None,
+        help="a rayo checkout whose C library runs a .weights file (default: RAYO_DIR; "
+        "without one, the NumPy reference the app's Dart reader copies runs it)",
+    )
     p.set_defaults(func=_ask_reader_probe)
 
     p = sub.add_parser("ask-writer", help="train and export the ask writer [train]")
