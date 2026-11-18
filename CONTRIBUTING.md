@@ -51,8 +51,13 @@ hook; run `tool/check` before the pull request is merged.
 - Small, focused pull requests against `dev`: one topic each, with tests for new behaviour and
   a passing `tool/check`. `main` takes only `dev` and release pull requests (see
   [Branches and releases](README.md#branches-and-releases)).
-- Pull request titles follow [Conventional Commits](https://www.conventionalcommits.org):
-  `feat: add a Sacco layout`, `fix: …`, `feat!: …` for a breaking change. They set the next
-  version and the changelog.
-- Commit messages: one short line in the same form, e.g. `feat: add a Sacco layout`. The
-  pre-push hook checks them (`tool/commit-titles origin/dev..HEAD` checks by hand).
+- Every commit follows [Conventional Commits](https://www.conventionalcommits.org): one short
+  line such as `feat: add a Sacco layout`, `fix: …`, `feat!: …` for a breaking change. Pull
+  requests into `dev` are rebase-merged, so each commit lands on `dev` as is and the commits set
+  the next version and the changelog. The pre-push hook checks them
+  (`tool/commit-titles origin/dev..HEAD` checks by hand).
+- Changes users can see are `feat` or `fix`. Review follow-ups they don't see use a hidden type
+  (`refactor`, `test`, `style`, `chore`, `docs`, `ci`, `build`) so the changelog stays clean.
+  Write them as new commits: pushed history is never rewritten, so no `fixup!`, `squash!` or
+  `amend!` commits.
+- One logical change per commit.
