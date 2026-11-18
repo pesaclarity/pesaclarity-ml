@@ -208,7 +208,7 @@ def _add_ask_commands(sub: Any) -> None:
 
     p = sub.add_parser(
         "ask-reader-weights",
-        help="write ask-reader.weights from an ask-reader.tflite (docs/WEIGHTS.md) [train]",
+        help="write ask-reader.weights, with its rayo graph, from an ask-reader.tflite",
     )
     p.add_argument("--model", default="artefacts/ask-reader/ask-reader.tflite")
     p.add_argument("--out", help="folder to write to (default: beside the model)")
@@ -231,7 +231,7 @@ def _add_ask_commands(sub: Any) -> None:
 
     p = sub.add_parser(
         "ask-writer-weights",
-        help="write ask-writer.weights, with its rayo graph, from an ask-writer.tflite [train]",
+        help="write ask-writer.weights, with its rayo graph, from an ask-writer.tflite",
     )
     p.add_argument("--model", default="artefacts/ask-writer/ask-writer.tflite")
     p.add_argument("--out", help="folder to write to (default: beside the model)")

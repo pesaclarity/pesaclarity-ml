@@ -277,7 +277,7 @@ def test_ask_reader_trains_and_exports(tmp_path) -> None:  # type: ignore[no-unt
     # The plain weights are the TFLite file's, and give TFLite's outputs. TFLite's own kernels
     # (XNNPACK and the built-in ones) differ from each other by a few 1e-4 on this barely
     # trained model, where an int8 rounding falls the other way.
-    from akili.ask.reader_weights import WEIGHTS_FILE, export_weights, forward
+    from akili.ask.reader_weights import WEIGHTS_FILE, _required, export_weights, forward
     from akili.export.weights import read_weights
 
     blob = (tmp_path / WEIGHTS_FILE).read_bytes()
@@ -288,7 +288,9 @@ def test_ask_reader_trains_and_exports(tmp_path) -> None:  # type: ignore[no-unt
     weights = read_weights(blob)
     assert weights.source_sha256 == manifest["model_sha256"]
     assert weights.tensors["conv_1.kernel"].value.dtype == np.int8
-    params = sum(t.value.size for t in weights.tensors.values())
+    # The layers' tensors are the model's parameters; rayo-convert adds the pooling's scalars.
+    assert set(_required()) <= set(weights.tensors)
+    params = sum(weights.tensors[n].value.size for n in _required())
     assert params == report["parameters"]
     for i in range(len(x)):
         d_intent, d_slots = forward(weights, x[i])
