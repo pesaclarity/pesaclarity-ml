@@ -234,8 +234,9 @@ trained models are held to their own tolerance as they move).
 The message reader is the first model on this path ([READER.md](READER.md#the-model-and-its-file)):
 [`akili.reader.model`](../src/akili/reader/model.py) keeps the Keras layer names, the export
 checks every layer's tensors, and its trained weights are held to their own tolerance against
-torch: 2e-2 for the fields, 1e-2 for the kind (measured: fields 1.6e-2 at worst, on a token
-whose two best labels are close, and 99.9% of tokens within 8.6e-3; kind 3.3e-3).
+torch: 2e-2 for the fields and the kind (measured on generated messages and the reader
+vectors: fields 1.6e-2 at worst, on a token whose two best labels are close, and 99.9% of
+tokens within 8.6e-3; kind 1.2e-2, on a message it is unsure of, and 3.3e-3 elsewhere).
 
 The TFLite path above stays as it is for the Ask models until they have moved.
 
