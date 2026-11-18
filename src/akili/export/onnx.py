@@ -4,9 +4,11 @@ The path every model takes once it moves to PyTorch (pesaclarity/docs, decision 
 
 1. :func:`to_onnx` exports a ``torch.nn.Module`` with example inputs through PyTorch's
    TorchScript-based ONNX exporter (``dynamo=False``) at opset :data:`OPSET` (17; rayo-convert
-   reads 13 or later), with the inputs and outputs named, constants folded and the parameters
-   kept under their module names (``conv_1.weight``). The same module, inputs and torch
-   version give the same bytes.
+   reads 13 or later), with the inputs and outputs named, constants folded and every
+   initializer named after its layer: the parameters under their module names
+   (``conv_1.weight``), and a linear layer's kernel the exporter folds transposed as
+   ``<layer>.kernel`` (``fields.kernel``, Keras' ``[in, out]``) instead of the exporter's own
+   ``onnx::MatMul_52``. The same module, inputs and torch version give the same bytes.
 2. rayo-convert reads the ONNX graph (rayo's docs/CONVERTING.md), maps its ops to rayo's and,
    with ``weights="int8"``, quantises the weights itself: symmetric int8 kernels (one scale per
    output) and embedding tables (one scale), the activations quantised on the fly by rayo's
@@ -99,7 +101,57 @@ def to_onnx(
             )
     finally:
         module.train(was_training)
-    return buf.getvalue()
+    return _keep_layer_names(buf.getvalue(), module)
+
+
+def _keep_layer_names(blob: bytes, module: torch.nn.Module) -> bytes:
+    """``blob`` with every initializer named after its layer.
+
+    The exporter folds a linear layer on a 3-D input into a ``MatMul`` by its kernel
+    transposed, ``[in, out]``, under a name of its own (``onnx::MatMul_52``). That is Keras'
+    kernel layout, so the initializer is renamed ``<layer>.kernel`` (``fields.kernel``), the
+    layer taken from the node's scope (``/fields/MatMul``) and the values checked against the
+    layer's weight. rayo-convert reads the same layer from that name as it did from the
+    scope, so the converted tensors and graph are unchanged. (Parameters the exporter shares
+    because their values are equal keep their names through ``Identity`` nodes.) A file with
+    no such initializer comes back byte for byte."""
+    import onnx
+    from onnx import numpy_helper
+
+    model = onnx.load_from_string(blob)
+    graph = model.graph
+    inits = {t.name: t for t in graph.initializer}
+    params = dict(module.named_parameters())
+    renames: dict[str, str] = {}
+    for node in graph.node:
+        layer = _scope(node.name)
+        if node.op_type != "MatMul" or layer is None or len(node.input) < 2:
+            continue
+        name = node.input[1]
+        weight = params.get(f"{layer}.weight")
+        if name not in inits or "::" not in name or weight is None or weight.ndim != 2:
+            continue
+        kernel = f"{layer}.kernel"
+        value = numpy_helper.to_array(inits[name])
+        if kernel not in inits and np.array_equal(weight.detach().cpu().numpy().T, value):
+            renames[name] = kernel
+    if not renames:
+        return blob
+    for t in graph.initializer:
+        t.name = renames.get(t.name, t.name)
+    for node in graph.node:
+        for k, name in enumerate(node.input):
+            node.input[k] = renames.get(name, name)
+    return bytes(model.SerializeToString())
+
+
+def _scope(node_name: str) -> str | None:
+    """The module path the exporter named a node by (``/fields/MatMul``: ``fields``;
+    ``/attention_0/query/MatMul``: ``attention_0.query``)."""
+    if not node_name.startswith("/"):
+        return None
+    parts = [p for p in node_name.split("/")[1:-1] if p]
+    return ".".join(parts) or None
 
 
 def expected_tensors(module: torch.nn.Module) -> list[str]:

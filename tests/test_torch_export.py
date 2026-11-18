@@ -197,6 +197,36 @@ def test_names_and_layout(name: str) -> None:
     assert [o.version for o in model.opset_import if o.domain in ("", "ai.onnx")] == [ex.OPSET]
 
 
+@pytest.mark.parametrize("name", list(CASES))
+def test_onnx_keeps_layer_names(name: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every initializer of the ONNX file is named after its layer: a parameter's own name, or
+    ``<layer>.kernel`` for a linear layer's kernel the exporter folded transposed (Keras'
+    ``[in, out]``), never one the exporter made up (``onnx::MatMul_52``). The converted
+    weights are those of the exporter's own names, tensor for tensor."""
+    import onnx
+    from onnx import numpy_helper
+
+    m, feeds, outputs, _ = build(name)
+    opts = ex.int8(Options(name=name))
+    done = ex.weights_of_module(m, example(feeds[0]), outputs, opts, layers=layers_of(m))
+    params = {n: p.detach().numpy() for n, p in m.named_parameters()}
+    for t in onnx.load_from_string(done.onnx).graph.initializer:
+        assert "::" not in t.name
+        layer, role = t.name.rsplit(".", 1)
+        value = numpy_helper.to_array(t)
+        if role == "kernel":
+            np.testing.assert_array_equal(value, params[f"{layer}.weight"].T)
+        else:
+            np.testing.assert_array_equal(value, params[t.name])
+    monkeypatch.setattr(ex, "_keep_layer_names", lambda blob, _module: blob)
+    raw = ex.weights_of_module(m, example(feeds[0]), outputs, opts, layers=layers_of(m))
+    assert raw.onnx != done.onnx or name == "dense"
+    assert raw.weights.graph == done.weights.graph
+    assert raw.weights.tensors.keys() == done.weights.tensors.keys()
+    for k, t in raw.weights.tensors.items():
+        np.testing.assert_array_equal(t.value, done.weights.tensors[k].value)
+
+
 # Between torch's floats and rayo's int8 here. Decision 0023 proposes 1e-2 for the trained
 # models (stage 2 on); these have random weights and heads made confident by HEAD_GAIN,
 # which int8 rounds less kindly (measured: 1.1e-2 at worst).
