@@ -86,6 +86,10 @@ def test_weights_and_manifest(trained: tuple[Path, dict[str, object]]) -> None:
     parity = report["parity"]
     assert isinstance(parity, dict)
     assert parity["within"]
+    assert parity["vectors"] == 10  # reader_vectors.v1.json, the long and empty ones too
+    per_vector = parity["per_vector"]
+    assert isinstance(per_vector, dict)
+    assert {"long", "empty"} <= set(per_vector)
     for name in ("fields", "kind"):
         assert parity[name]["labels_compared"] == parity[name]["labels_compared_same"] > 0
 
@@ -97,6 +101,15 @@ def test_training_is_deterministic() -> None:
     b = rt.export_module(rt.fit(cfg, messages))
     assert a.onnx == b.onnx
     assert a.sha256 == b.sha256
+
+
+def test_vector_inputs() -> None:
+    ids, x = rt.vector_inputs()
+    assert len(ids) == len(x) == 10
+    assert x.shape == (10, 2 * MAX_TOKENS)
+    long = x[ids.index("long")]
+    assert (long[MAX_TOKENS:] > 0).all()  # 120 words, cut to 96 tokens
+    assert not x[ids.index("empty")].any()
 
 
 def test_input_is_the_message_split() -> None:
