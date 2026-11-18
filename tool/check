@@ -2,8 +2,14 @@
 # Run the repository's checks on this machine (they used to run in GitHub CI).
 #
 #   tool/check          everything: lint, types, all tests (TensorFlow included),
-#                       smoke training runs, then the core-only install
+#                       smoke training runs, the torch export on its own (no
+#                       TensorFlow), then the core-only install
 #   tool/check --fast   format, lint, types and the tests that skip TensorFlow
+#                       (the torch tests run only if the [torch] extra is installed)
+#
+# AKILI_CHECK_TORCH=0 leaves out the torch step (it installs PyTorch's CPU wheels
+# into a throwaway environment once, and fetches rayo's C sources, to run the
+# converted files: RAYO_DIR names a rayo checkout to use instead).
 #
 # The pre-push hook runs the full check. Needs uv: https://docs.astral.sh/uv/
 set -euo pipefail
@@ -45,8 +51,9 @@ if $fast; then
   # --inexact keeps any extras you have installed instead of removing them.
   run=(uv run --locked --inexact)
 else
-  # Full check uses the training and federated extras, like CI's train job.
-  run=(uv run --locked --all-extras)
+  # Full check uses the training and federated extras, like CI's train job. The
+  # [torch] extra runs on its own below, without TensorFlow.
+  run=(uv run --locked --extra train --extra fl)
 fi
 
 step "ruff format" "run 'uv run ruff format .'" "${run[@]}" ruff format --check .
@@ -71,6 +78,38 @@ step "smoke: federated simulation" "$fix_smoke" \
 step "quick privacy audit (report only)" "$fix_smoke" \
   "${run[@]}" akili audit --quick --report-only \
   --config configs/audit-no-dp.yaml --config configs/audit-dp-sgd.yaml
+
+# The torch export path (akili.export.onnx) in an environment of its own: core and
+# [torch], no TensorFlow, which the path must not need. rayo's C library runs the
+# converted files, built from rayo's sources at the commit pyproject.toml pins.
+rayo_sources() {
+  local commit dir
+  commit=$(grep -o 'pesaclarity/rayo@[0-9a-f]\{40\}' pyproject.toml | head -1 | cut -d@ -f2)
+  dir=".cache/rayo/$commit"
+  if [ ! -f "$dir/src/model.c" ]; then
+    rm -rf "$dir"
+    mkdir -p "$dir"
+    git -C "$dir" init -q
+    git -C "$dir" sparse-checkout set src include >/dev/null
+    git -C "$dir" fetch -q --depth 1 --filter=blob:none https://github.com/pesaclarity/rayo "$commit" &&
+      git -C "$dir" checkout -q FETCH_HEAD || { rm -rf "$dir"; return 1; }
+  fi
+  echo "$PWD/$dir"
+}
+if [ "${AKILI_CHECK_TORCH:-1}" != 0 ]; then
+  torch=(uv run --locked --isolated --extra torch)
+  if [ -z "${RAYO_DIR:-}" ]; then
+    RAYO_DIR=$(rayo_sources) || {
+      echo "    (could not fetch rayo's sources: the tests that run rayo's C library skip)"
+      RAYO_DIR=
+    }
+  fi
+  export RAYO_DIR
+  step "no TensorFlow with [torch]" "keep TensorFlow out of the [torch] extra" \
+    "${torch[@]}" python -c "import importlib.util as u, sys; sys.exit(u.find_spec('tensorflow') is not None)"
+  step "mypy (torch extra)" "fix the type errors listed above" "${torch[@]}" mypy
+  step "pytest (torch export)" "fix the failing tests above" "${torch[@]}" pytest -m torch
+fi
 
 # The core install (no extras) must work on its own. --isolated builds a
 # throwaway environment, so your .venv keeps its extras.

@@ -13,7 +13,10 @@ dependencies = [
     "pydantic>=2.9,<3",
     "pyyaml>=6.0.2,<7",
     # rayo's model converter, pinned to a rayo commit: the plain weights' graph (docs/WEIGHTS.md).
-    "rayo-convert @ git+https://github.com/pesaclarity/rayo@19e687d0d5bbf012a7ec20c4de5ab5648a722c2e#subdirectory=convert",
+    # [tflite]: it reads the TFLite files the Keras models export (until they move to torch).
+    # This commit is pesaclarity/rayo's feat/convert-onnx-int8 (int8 from float ONNX graphs);
+    # the pin moves to rayo's main once that is merged.
+    "rayo-convert[tflite] @ git+https://github.com/pesaclarity/rayo@f431f85ef69fde4af0e905fae7c605218894cf90#subdirectory=convert",
 ]
 
 [project.optional-dependencies]
@@ -23,6 +26,12 @@ train = [
 ]
 fl = [
     "flwr>=1.20,<2",
+]
+# PyTorch on CPU and onnx: the export path the models move to (decision 0023,
+# akili.export.onnx). No TensorFlow.
+torch = [
+    "torch>=2.6,<2.16",
+    "onnx>=1.17,<2",
 ]
 
 [project.scripts]
@@ -43,6 +52,15 @@ dev = [
 [build-system]
 requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
+
+[tool.uv.sources]
+# PyTorch's CPU wheels (no CUDA libraries), from PyTorch's own index.
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [tool.hatch.metadata]
 # rayo-convert comes from rayo's repository, by commit.
@@ -69,7 +87,7 @@ packages = ["akili"]
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["tensorflow.*", "keras.*", "flwr.*", "mlflow.*", "dp_accounting.*"]
+module = ["tensorflow.*", "keras.*", "flwr.*", "mlflow.*", "dp_accounting.*", "torch.*", "onnx.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
@@ -83,6 +101,7 @@ addopts = "-ra --strict-markers"
 markers = [
     "tf: needs the [train] extra (TensorFlow)",
     "fl: needs the [fl] extra (Flower)",
+    "torch: needs the [torch] extra (PyTorch, onnx)",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning:tensorflow.*",

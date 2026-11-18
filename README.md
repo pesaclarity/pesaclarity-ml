@@ -24,7 +24,8 @@ uv run akili vectors                      # regenerate the feature test vectors 
 uv run akili epsilon --config configs/dp-sgd.yaml
 uv run akili ledger                       # what every DP run so far has spent, per dataset
 
-uv sync --all-extras                      # add TensorFlow, MLflow and Flower
+uv sync --extra train --extra fl          # add TensorFlow, MLflow and Flower
+uv sync --extra torch                     # PyTorch (CPU) and onnx: the export path models move to
 uv run akili train --config configs/smoke.yaml
 uv run akili train --config configs/dp-sgd.yaml
 uv run akili simulate --config configs/federated-smoke.yaml
@@ -194,19 +195,20 @@ src/akili/
   ask/                    Ask: questions, replies, reader and writer training, examples
   model.py                the Keras categoriser            [train]
   train/                  centralised and DP-SGD training   [train]
-  export/                 TFLite export, size budget, plain weights format
+  export/                 TFLite export, size budget, plain weights format;
+                          onnx.py: a torch model to rayo's weights via ONNX [torch]
   federated/              client, update maths, simulation, Flower adapter
   privacy/                privacy accounting, budget ledger, membership-inference audit
                           (mia.py [train]), release gate
   tracking.py             MLflow wrapper                    [train]
   cli.py                  the `akili` command
-tests/                    pytest; test_tf_* need the [train] extra
+tests/                    pytest; test_tf_* need the [train] extra, test_torch_* [torch]
 ```
 
 ## Testing
 
 ```sh
-tool/check          # everything, with all extras: lint, types, all tests, smoke runs, then the core install
+tool/check          # everything: lint, types, all tests, smoke runs, the torch export without TensorFlow, then the core install
 tool/check --fast   # format, lint, types and the tests that skip TensorFlow
 tool/setup-hooks    # once: the pre-push hook runs tool/check
 ```
