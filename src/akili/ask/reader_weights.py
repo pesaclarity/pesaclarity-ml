@@ -2,12 +2,13 @@
 
 The app runs the ask reader in Dart, not TFLite, and reads its weights from
 ``ask-reader.weights`` (format: [docs/WEIGHTS.md](../../../docs/WEIGHTS.md)). They are read
-out of the very ``ask-reader.tflite`` that :mod:`akili.ask.reader` exports, so they are byte
-for byte the int8 and float32 tensors TFLite runs, not a second conversion of the Keras model.
+out of the very ``ask-reader.tflite`` that :mod:`akili.ask.keras_reader` exports, so they are
+byte for byte the int8 and float32 tensors TFLite runs, not a second conversion of the Keras model.
 
 :func:`forward` is the reference forward pass on those weights, in NumPy: the layers of
-:func:`akili.ask.reader.build_ask_reader` run the way TFLite runs this dynamic-range-quantised
-model, so it gives TFLite's outputs to about 1e-5. The app's Dart code is a copy of it.
+:func:`akili.ask.keras_reader.build_ask_reader` run the way TFLite runs this
+dynamic-range-quantised model, so it gives TFLite's outputs to about 1e-5. The app's Dart code
+is a copy of it.
 
 Reading the file is rayo-convert's (pesaclarity/rayo, a pinned dependency): it maps the TFLite
 graph to rayo's ops and gives its tensors as they are in the file, with no TensorFlow.

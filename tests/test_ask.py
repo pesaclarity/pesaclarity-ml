@@ -248,14 +248,14 @@ def test_writer_targets_mask_the_facts() -> None:
 @pytest.mark.tf
 @needs_tf
 def test_ask_reader_trains_and_exports(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    from akili.ask.reader import (
+    from akili.ask.keras_reader import (
         MANIFEST_FILE,
         MODEL_FILE,
-        AskReaderConfig,
         build_ask_reader,
         run_tflite,
         train_ask_reader,
     )
+    from akili.ask.reader import AskReaderConfig
 
     cfg = AskReaderConfig(questions=1500, epochs=1)
     assert build_ask_reader(cfg).count_params() <= 300_000
