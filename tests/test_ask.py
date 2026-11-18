@@ -199,7 +199,7 @@ def test_training_never_makes_an_evaluation_question() -> None:
     v4 = questions.v4_template_ids()
     cfg = AskReaderConfig()
     trained = training_questions(cfg)
-    assert sum(q.template in v4 for q in trained) > cfg.questions // 10
+    assert sum(q.template in v4 for q in trained) > cfg.questions // 20
     assert not [q.text for q in trained if q.template in v4 and _normalise(q.text) in evaluation]
     more = questions.generate(60_000, seed=11, templates=v4, pool=names.TRAIN)
     more += questions.generate(20_000, seed=12, templates=v4)

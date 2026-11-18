@@ -16,8 +16,8 @@ only the held-out pool has; the probe also scores the names made of those alone.
 is a real person, business or message.
 
 Version 4 adds two shapes to the training pool only (the held-out pool is unchanged):
-:meth:`NamePool.short_name`, a single word (a syllable word, an invented word that starts with a
-vowel, or a plain word), and :meth:`NamePool.long_name`, two to four words in which plain words
+:meth:`NamePool.short_name`, a single word (a syllable word or an invented word that starts
+with a vowel), and :meth:`NamePool.long_name`, two to four words in which plain words
 ("Corner", "Golden", "Sunrise") stand beside prefixes, syllable words and business words, so a
 name whose second word is an ordinary word still reads whole.
 """
@@ -131,8 +131,9 @@ _FORMS = ["w", "ww", "wb", "wb", "pb", "pw", "tw", "pwb", "wbx", "pwbx", "wwb", 
 QUESTION_WORDS = {"unga", "ebu", "aki", "ati", "ile", "uza", "ya"}
 # Version 4's longer shapes, with c a plain word ("Corner"): "pc" is "Example Corner".
 LONG_FORMS = ["pc", "pc", "cb", "wc", "cw", "cc", "pcb", "ccb", "wcb", "pwc", "tc", "cbx"]
-# Version 4's one-word shapes: w a syllable word, v a vowel word, c a plain word.
-SHORT_FORMS = ["w", "v", "v", "c"]
+# Version 4's one-word shapes: w a syllable word, v a vowel word. Plain words stay out of
+# one-word names: alone, in lower case, they read like a category ("fuel", "rent").
+SHORT_FORMS = ["w", "v", "v"]
 
 
 class NamePool:
@@ -177,7 +178,7 @@ class NamePool:
         return self._name(rng, LONG_FORMS)
 
     def short_name(self, rng: np.random.Generator) -> str:
-        """A one-word name (a syllable word, a vowel word or a plain word), cased as
+        """A one-word name (a syllable word or a vowel word), cased as
         :meth:`name` (version 4; needs ``plain`` and ``vowel_words``)."""
         return self._name(rng, SHORT_FORMS)
 
