@@ -203,7 +203,11 @@ wheels and `onnx`, no TensorFlow):
 1. `to_onnx` exports the `torch.nn.Module` with example inputs through `torch.onnx`'s
    TorchScript-based exporter at opset 17 (`OPSET`; rayo-convert reads 13 or later): the
    inputs and outputs named as given, constants folded, the parameters under their module
-   names. The same module, inputs and torch version give the same bytes.
+   names. A linear layer on a sequence (`[T, in]`) is folded by the exporter into a `MatMul` by
+   its kernel transposed, which it would name `onnx::MatMul_52`; `to_onnx` names it
+   `<layer>.kernel` (`fields.kernel`, Keras' `[in, out]` layout), so every initializer in the
+   ONNX file is named after its layer. The converted weights are the same either way. The same
+   module, inputs and torch version give the same bytes.
 2. rayo-convert converts the ONNX file as it converts a TFLite one. With `weights="int8"`
    (rayo's `--weights int8`) it quantises the weights itself, in the int8 above: dense and
    convolution kernels symmetric with one scale per output (axis 0), embedding tables with one
