@@ -8,6 +8,8 @@ dist/
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
+# rayo's C sources at the pinned commit, fetched by tool/check
+.cache/
 .coverage
 htmlcov/
 

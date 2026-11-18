@@ -1,5 +1,7 @@
 """A model's plain weights and rayo graph, converted from its TFLite file by rayo-convert.
 
+(A PyTorch model takes the same converter through ONNX: :mod:`akili.export.onnx`.)
+
 rayo (pesaclarity/rayo), the app's native runtime, ships ``rayo-convert``: it reads a TFLite
 file, maps its ops to rayo's, keeps the int8 weights as they are in the file, and writes the
 graph that runs them (rayo's docs/CONVERTING.md). It is a pinned dependency (pyproject.toml,
@@ -39,6 +41,23 @@ def weights_of(
     named in ``required`` must be among the converted ones (the layers this repository says
     the model has)."""
     blob, result = convert_tflite(path, options)
+    weights = weights_from_result(
+        blob, Path(path).name, result, options=options, layers=layers, required=required
+    )
+    return weights, result
+
+
+def weights_from_result(
+    blob: bytes,
+    file_name: str,
+    result: Result,
+    *,
+    options: Options,
+    layers: list[dict[str, Any]],
+    required: list[str],
+) -> Weights:
+    """``Weights`` for rayo-convert's ``result`` of the model file ``blob`` (named
+    ``file_name``: a TFLite file, or the ONNX file a torch model was exported to)."""
     tensors: dict[str, Tensor] = {}
     for w in result.weights:
         if w.scales is None:
@@ -48,16 +67,15 @@ def weights_of(
     missing = [n for n in required if n not in tensors]
     if missing:
         raise ValueError(
-            f"{Path(path).name}: rayo-convert gave no {', '.join(missing)}; "
+            f"{file_name}: rayo-convert gave no {', '.join(missing)}; "
             "is this the model these layers describe?"
         )
-    weights = Weights(
+    return Weights(
         model=str(options.name),
-        source_file=Path(path).name,
+        source_file=file_name,
         source_sha256=hashlib.sha256(blob).hexdigest(),
         source_size_bytes=len(blob),
         layers=layers,
         tensors=tensors,
         graph=result.graph,
     )
-    return weights, result

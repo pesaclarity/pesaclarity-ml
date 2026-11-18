@@ -184,3 +184,43 @@ model's.
 TFLite file exported before, `akili ask-reader-weights --model path/to/ask-reader.tflite`
 writes `ask-reader.weights` beside it (or into `--out`) and, when the manifest there is that
 model's, adds the fields to it. The same TFLite file always gives the same bytes.
+
+## From a PyTorch model
+
+The models move to PyTorch one at a time (pesaclarity/docs, decision 0023); each exports through
+[`akili.export.onnx`](../src/akili/export/onnx.py), with the `[torch]` extra (PyTorch's CPU
+wheels and `onnx`, no TensorFlow):
+
+1. `to_onnx` exports the `torch.nn.Module` with example inputs through `torch.onnx`'s
+   TorchScript-based exporter at opset 17 (`OPSET`; rayo-convert reads 13 or later): the
+   inputs and outputs named as given, constants folded, the parameters under their module
+   names. The same module, inputs and torch version give the same bytes.
+2. rayo-convert converts the ONNX file as it converts a TFLite one. With `weights="int8"`
+   (rayo's `--weights int8`) it quantises the weights itself, in the int8 above: dense and
+   convolution kernels symmetric with one scale per output (axis 0), embedding tables with one
+   scale, weights of fewer than 1024 values left float32 (TFLite's rule), and the layers'
+   inputs quantised on the fly as described above (`rows`, `tensor_phases`). So the Dart reader
+   and rayo run these files unchanged. On the released Ask reader and writer, rayo-convert's
+   int8 from their weights as floats is the TFLite file's int8 byte for byte (rayo's
+   `convert/tests/test_int8.py`).
+3. `weights_of_module` (or `export`, which also writes the ONNX file beside the `.weights`)
+   gives these weights, `source` naming the ONNX file. Tensors are named after the module's
+   layers (`conv_1.kernel`, `slot_hidden.bias`, `token_embedding.table`, `ln.gamma`), so a torch
+   module that keeps the Keras layer names keeps the tensors, their layout (`[out, in]`,
+   `[out, 1, size, in]`, `[rows, width]`) and the `layers` list the app checks. Every layer's
+   tensors must be there (`expected_tensors`), or the export fails, naming the missing ones.
+
+`parity` compares the torch model with the converted file on a set of inputs: the largest
+difference per output, and the labels (each row's arg-max) compared where torch's two best
+scores are further apart than a margin. `RayoRunner` runs the file on rayo's C library, built
+from a rayo checkout (`RAYO_DIR`; `tool/check` fetches the pinned commit's sources);
+`ReferenceRunner` runs the graph on rayo-convert's NumPy reference with the same int8 meaning.
+`deterministic` fixes the seeds, `torch.use_deterministic_algorithms(True)` and the thread
+count. The tests (`tests/test_torch_export.py`) build small modules with the op families the
+message reader and the Ask reader need (dense, 1-D convolutions, one dilated, embeddings,
+layer norm, masked mean and max pooling): float32 on rayo gives torch's outputs within 1e-5;
+int8 the same labels, probabilities within 2e-2 (these modules have random weights; the
+trained models are held to their own tolerance as they move).
+
+The TFLite path above stays as it is until the last model has moved.
+
