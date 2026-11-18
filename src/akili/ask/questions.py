@@ -423,7 +423,8 @@ _VALUES: dict[str, tuple[list[str], int]] = {
 }
 
 V2_SHARE = 0.4
-"""With a name pool, the share of an intent's questions drawn from its version 2 templates."""
+"""With a name pool, the share of an intent's questions drawn from its version 2 and 3
+templates (on top of their share of the rest)."""
 
 BANK_PAYEES = [b for b in names.BANKS if b != "Cash"]
 WIDE_ACCOUNTS = [*ACCOUNTS, *names.BANKS, "cash", "my cash", "CASH", "Co-operative Bank"]
@@ -2132,9 +2133,10 @@ V3_TEMPLATE_COUNTS: dict[str, int] = {intent: len(TEMPLATES[intent]) for intent 
 # few words ("received from X", "got from X", "was paid by X"), with sends to a name as the
 # look-alike; a payee inside compare, trend, biggest-payment, debt, bill and income-source
 # questions ("compare my spending at X with last month"); names that are one word ({short}) or
-# whose words include plain ones ({long}: "Example Corner", "Golden Butchery"), so they come out
-# whole; and amounts and amount filters written many ways ({amt}: "over 1000", "ksh 2,500 and
-# above", "at least 1.5k"; {sum}: "2500", "kes 1,200"), next to a period or a name.
+# whose words include plain ones ({long}: "Example Corner",
+# "Golden Butchery"), so they come out whole; and amounts and amount filters written many ways
+# ({amt}: "over 1000", "ksh 2,500 and above", "at least 1.5k"; {sum}: "2,500", "kes 1,200"),
+# next to a period or a name.
 LEXICON["got_in"] = [
     "received",
     "got",
@@ -2175,7 +2177,7 @@ _V4_TEMPLATES: dict[str, list[str]] = {
         "to {short} [how much|what] [did i send|went out|have i sent] " + _P,
     ],
     "compare": [
-        "<compare> [my|] <spending> [at|with|on] {long} <vs> {period}",
+        "<compare> [my|] <spending> [at|with] {long} <vs> {period}",
         "<compare> [my|] <spending> [at|with] {short} <vs> {period}",
         "<compare> [my|] [payments|<spending>|what i spent] [at|to] {name} {period} <vs> {period2}",
         "[how does|how did] my <spending> [at|with] [{long}|{short}] {period} compare [with|to] "
@@ -2187,7 +2189,7 @@ _V4_TEMPLATES: dict[str, list[str]] = {
         "<compare> [my|] {category} [<spending>|] at {long} <vs> {period}",
     ],
     "trend": [
-        "how has my <spending> [at|with|on] [{long}|{short}] <changed> " + _P,
+        "how has my <spending> [at|with] [{long}|{short}] <changed> " + _P,
         "[is|has] my <spending> at {long} [<change>|<changed>] " + _P,
         "[how are|how have] [my|] [payments|<spending>] [to|at] {long} [<change>|<changed>] "
         "[lately|over time|]",
@@ -2234,6 +2236,9 @@ _V4_TEMPLATES: dict[str, list[str]] = {
         "{period} <much> did i <spend> [in|on] [payments|purchases] {amt}",
         "[my|] [spending|purchases] {amt} [at {long}|on {category}|] " + _P,
         "<much> [did i|have i] [spent|paid] at [{long}|{short}] [in|on] [payments|purchases] {amt}",
+        "<much> [did i|have i] [spent|paid|used] on [items|goods|shopping|anything|orders] {amt} "
+        + _P,
+        "[what|how much] [went|did i pay] [for|on] [items|goods|orders|purchases] {amt} " + _P,
     ],
     "received": [
         "<much> came in [as|in] [payments|deposits|transfers] {amt} " + _P,
@@ -2277,10 +2282,11 @@ AMOUNT_CURRENCY = ["ksh", "kes", "Ksh", "KES", "sh", "ksh.", "Kshs", "kshs"]
 AMOUNT_UNITS = ["bob", "shillings", "/=", "/-", "bob only"]
 
 
-def _money_text(g: _Gen, value: int) -> str:
-    """``value`` as people type it: "1000", "1,000", "1k", "1.5K", "ksh 1,000", "1000 bob"."""
+def _money_text(g: _Gen, value: int, bare: bool = True) -> str:
+    """``value`` as people type it: "1000", "1,000", "1k", "1.5K", "ksh 1,000", "1000 bob".
+    Without ``bare``, never four bare digits, which read as a year ("2025")."""
     plain, comma = str(value), f"{value:,}"
-    forms = [plain, comma, comma]
+    forms = [plain, comma, comma] if bare or value < 1000 else [comma, comma]
     if value >= 1000 and value % 500 == 0:
         k = f"{value / 1000:g}"
         forms += [f"{k}k", f"{k}k", f"{k}K", f"{k} k"]
@@ -2299,7 +2305,7 @@ def _amount(g: _Gen, bound: bool) -> str:
     """An amount ({sum}) or, with ``bound``, an amount filter ({amt})."""
     value = g.pick(AMOUNT_VALUES)
     if not bound:
-        return _money_text(g, value)
+        return _money_text(g, value, bare=False)
     r = g.rng.random()
     if r < 0.6:
         return f"{g.pick(AMOUNT_BEFORE)} {_money_text(g, value)}"
@@ -2307,7 +2313,7 @@ def _amount(g: _Gen, bound: bool) -> str:
         return f"{_money_text(g, value)} {g.pick(AMOUNT_AFTER)}"
     upper = g.pick([v for v in AMOUNT_VALUES if v > value] or [value * 2])
     start, middle = AMOUNT_RANGE[int(g.rng.integers(len(AMOUNT_RANGE)))]
-    text = f"{_money_text(g, value)} {middle} {_money_text(g, upper)}"
+    text = f"{_money_text(g, value, bool(start))} {middle} {_money_text(g, upper, bool(start))}"
     return f"{start} {text}" if start else text
 
 
@@ -2499,9 +2505,14 @@ def generate(
         for intent in ASK_INTENTS
     }
     intents = [i for i in ASK_INTENTS if pools[i]]
-    # With invented names, version 2 templates (the hard phrasings) come up more often.
+    # With invented names, version 2 and 3 templates (the hard phrasings) come up more often;
+    # version 4 ones as often as version 1's, so they add phrasings without crowding out the rest.
     newer = {
-        intent: [p for p in pools[intent] if int(p[0].split(":")[1]) >= V1_TEMPLATE_COUNTS[intent]]
+        intent: [
+            p
+            for p in pools[intent]
+            if V1_TEMPLATE_COUNTS[intent] <= int(p[0].split(":")[1]) < V3_TEMPLATE_COUNTS[intent]
+        ]
         for intent in intents
     }
     out = []
