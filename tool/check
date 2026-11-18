@@ -84,6 +84,12 @@ step "quick privacy audit (report only)" "$fix_smoke" \
 # converted files, built from rayo's sources at the commit pyproject.toml pins.
 rayo_sources() {
   local commit dir
+  # A git hook exports GIT_DIR (and in a linked worktree GIT_INDEX_FILE and
+  # friends). Left set, `git init` below would re-initialise this repository
+  # (setting core.bare) instead of creating the new one, and the fetch would fail.
+  # This function runs in a $(...) subshell, so unsetting them here is local.
+  unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+    GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_PREFIX
   commit=$(grep -o 'pesaclarity/rayo@[0-9a-f]\{40\}' pyproject.toml | head -1 | cut -d@ -f2)
   dir=".cache/rayo/$commit"
   if [ ! -f "$dir/src/model.c" ]; then
