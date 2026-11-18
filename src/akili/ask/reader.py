@@ -43,6 +43,7 @@ from akili.ask.questions import (
     template_ids,
     to_arrays,
     v1_template_ids,
+    v2_template_ids,
 )
 from akili.ask.reader_weights import WEIGHTS_FILE, manifest_fields, read_tflite
 from akili.ask.schema import ASK_INTENTS, ASK_SCHEMA_VERSION, SLOT_LABELS
@@ -205,9 +206,10 @@ def run_tflite(path: Path, x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
 
 def probe_scores(path: Path) -> dict[str, Any]:
-    """Scores of the TFLite file at ``path`` on the two probe sets (see
-    :mod:`akili.ask.probes`): (b) the hard held-out set and (c) the app's questions, with
-    the reading of each app question."""
+    """Scores of the TFLite file at ``path`` on the probe sets (see :mod:`akili.ask.probes`):
+    (b) the hard held-out set, (c) the app's questions, the known misses with their variants
+    and look-alikes, and the conformance file's questions, with the reading of each question
+    of the last three."""
     hard = probes.hard_questions()
     qs = [q for _, q in hard]
     x, _, _ = to_arrays(qs)
@@ -215,11 +217,26 @@ def probe_scores(path: Path) -> dict[str, Any]:
     app = probes.app_questions()
     xa, _, _ = to_arrays(app)
     intent_a, slots_a = run_tflite(path, xa)
+    misses = probes.miss_questions()
+    mq = [q for _, q in misses]
+    xm, _, _ = to_arrays(mq)
+    intent_m, slots_m = run_tflite(path, xm)
+    conf = probes.conformance_questions()
+    xc, _, _ = to_arrays(conf)
+    intent_c, slots_c = run_tflite(path, xc)
     return {
         "hard_held_out": probes.score_probe(qs, intent_p, slots_p, [g for g, _ in hard]),
         "app_questions": {
             **probes.score_probe(app, intent_a, slots_a, None),
             "readings": probes.readings(app, intent_a, slots_a),
+        },
+        "misses": {
+            **probes.score_probe(mq, intent_m, slots_m, [g for g, _ in misses]),
+            "readings": probes.readings(mq, intent_m, slots_m),
+        },
+        "conformance_questions": {
+            **probes.score_probe(conf, intent_c, slots_c, None),
+            "readings": probes.readings(conf, intent_c, slots_c),
         },
     }
 
@@ -301,38 +318,63 @@ def score(model: Any, questions: list[Question], path: Path) -> dict[str, Any]:
     }
 
 
-def evaluate_unseen_templates(cfg: AskReaderConfig, work: Path) -> dict[str, Any]:
-    """Each fold: train on the other folds' templates, score on this fold's. The version 1
-    templates are scored on the very questions version 1 was scored on (same folds, seeds and
-    value lists), so ``mean_intent_accuracy`` compares across versions; the version 2
-    templates are scored on their own, with invented names, as ``v2``."""
+def fold_scores(cfg: AskReaderConfig, i: int, work: Path) -> dict[str, Any]:
+    """Fold ``i``: train on the other folds' templates and score on this fold's, as ``v1``,
+    ``v2`` and ``v3`` (the templates of each version; ``None`` when the fold holds none). A
+    fold can run in a process of its own; :func:`summarise_folds` joins them."""
     all_ids = set(template_ids())
-    v1 = v1_template_ids()
-    results, v2_results = [], []
-    for i, held in enumerate(folds(cfg.folds, seed=cfg.seed)):
-        train = generate(
-            cfg.questions, seed=cfg.seed + 100 + i, templates=all_ids - held, pool=names.TRAIN
+    v1, v2 = v1_template_ids(), v2_template_ids()
+    held = folds(cfg.folds, seed=cfg.seed)[i]
+    train = generate(
+        cfg.questions, seed=cfg.seed + 100 + i, templates=all_ids - held, pool=names.TRAIN
+    )
+    model = _fit(cfg, train)
+    del train
+    out: dict[str, Any] = {
+        "v1": score(
+            model,
+            generate(cfg.questions // 5, seed=cfg.seed + 200 + i, templates=held & v1),
+            work / "held-out.tflite",
         )
-        test = generate(cfg.questions // 5, seed=cfg.seed + 200 + i, templates=held & v1)
-        model = _fit(cfg, train)
-        results.append(score(model, test, work / "held-out.tflite"))
-        if held - v1:
-            test2 = generate(
-                cfg.questions // 20,
-                seed=cfg.seed + 300 + i,
-                templates=held - v1,
-                pool=names.TRAIN,
+    }
+    for key, ids, seed in (("v2", held & v2, 300), ("v3", held - v1 - v2, 400)):
+        out[key] = (
+            score(
+                model,
+                generate(
+                    cfg.questions // 20, seed=cfg.seed + seed + i, templates=ids, pool=names.TRAIN
+                ),
+                work / "held-out.tflite",
             )
-            v2_results.append(score(model, test2, work / "held-out.tflite"))
-        # Free the fold's model and data before the next: six trainings in one process
-        # otherwise hold several GB.
-        del model, train
-        require("keras", "train").backend.clear_session()
-        gc.collect()
+            if ids
+            else None
+        )
+    # Free the fold's model before the next: six trainings in one process otherwise hold
+    # several GB.
+    del model
+    require("keras", "train").backend.clear_session()
+    gc.collect()
+    return out
+
+
+def summarise_folds(per_fold: list[dict[str, Any]]) -> dict[str, Any]:
+    """The held-out score from each fold's :func:`fold_scores`."""
+    results = [f["v1"] for f in per_fold]
     per_intent = {
         name: round(float(np.mean([r["per_intent_accuracy"][name] for r in results])), 4)
         for name in ASK_INTENTS
     }
+
+    def later(key: str) -> dict[str, Any] | None:
+        rs = [f[key] for f in per_fold if f.get(key) is not None]
+        if not rs:
+            return None
+        return {
+            "mean_intent_accuracy": round(float(np.mean([r["intent_accuracy"] for r in rs])), 4),
+            "mean_slot_f1": round(float(np.mean([r["slots"]["all"]["f1"] for r in rs])), 4),
+            "questions": int(sum(r["questions"] for r in rs)),
+        }
+
     return {
         "mean_intent_accuracy": round(float(np.mean([r["intent_accuracy"] for r in results])), 4),
         "mean_slot_f1": {
@@ -341,16 +383,18 @@ def evaluate_unseen_templates(cfg: AskReaderConfig, work: Path) -> dict[str, Any
         },
         "mean_per_intent_accuracy": per_intent,
         "folds": results,
-        "v2": {
-            "mean_intent_accuracy": round(
-                float(np.mean([r["intent_accuracy"] for r in v2_results])), 4
-            ),
-            "mean_slot_f1": round(float(np.mean([r["slots"]["all"]["f1"] for r in v2_results])), 4),
-            "questions": int(sum(r["questions"] for r in v2_results)),
-        }
-        if v2_results
-        else None,
+        "v2": later("v2"),
+        "v3": later("v3"),
     }
+
+
+def evaluate_unseen_templates(cfg: AskReaderConfig, work: Path) -> dict[str, Any]:
+    """Each fold: train on the other folds' templates, score on this fold's. The version 1
+    templates are scored on the very questions version 1 was scored on (same folds, seeds and
+    value lists), so ``mean_intent_accuracy`` compares across versions; the version 2 and 3
+    templates are scored on their own, with invented names, as ``v2`` and ``v3`` (version 2
+    on the very questions it was scored on before version 3)."""
+    return summarise_folds([fold_scores(cfg, i, work) for i in range(cfg.folds)])
 
 
 def ask_reader_manifest(blob: bytes, weights: bytes) -> dict[str, Any]:

@@ -20,6 +20,7 @@ from typing import Any
 import numpy as np
 
 from akili.ask import names
+from akili.ask.examples import _QUESTIONS as _CONFORMANCE
 from akili.ask.examples import parse_marked
 from akili.ask.questions import (
     _P,
@@ -174,6 +175,101 @@ _APP: tuple[tuple[str, str], ...] = (
     ("out_of_scope", "What's the weather?"),
     ("out_of_scope", "Should I buy a car?"),
 )
+
+
+# (group, intent, question with [text](slot) marks): the misses the version 2 reader made, each
+# with close variants (casing, Sheng, with and without a period, other accounts and names), and
+# look-alikes that must keep their own intent. Hand-written, never trained on; names are
+# generic first names, well-known chains and banks, or made up.
+_MISSES: tuple[tuple[str, str, str], ...] = (
+    # 1. An account then a period: "KCB" is the account, "this month" the period.
+    ("fees_on", "fees", "How much did I pay in charges on [KCB](account) [this month](period)?"),
+    ("fees_on", "fees", "how much did i pay in charges on [Equity](account) [last month](period)"),
+    ("fees_on", "fees", "charges on [M-PESA](account) [this week](period)"),
+    ("fees_on", "fees", "how much have I paid in fees on [mpesa](account) [this year](period)?"),
+    ("fees_on", "fees", "transaction charges on [Co-op](account) [in October](period)"),
+    ("fees_on", "fees", "what did i pay in charges at [KCB](account) [last week](period)"),
+    ("fees_on", "fees", "how much in fees on [Airtel Money](account) [this month](period)"),
+    ("fees_on", "fees", "nimelipa charges ngapi kwa [M-Pesa](account) [mwezi huu](period)"),
+    ("fees_on", "fees", "How much did I pay in charges on [KCB](account)?"),
+    ("fees_on", "fees", "[KCB](account) charges [this month](period)"),
+    ("fees_on", "fees", "how much has [Equity](account) charged me [since June](period)"),
+    ("fees_on", "fees", "fees on [kcb](account) [last month](period)"),
+    ("fees_on", "fees", "HOW MUCH DID I PAY IN CHARGES ON [KCB](account) [THIS MONTH](period)"),
+    ("fees_on", "fees", "bank charges on [Equity Bank](account) [in March](period)"),
+    ("fees_on", "fees", "withdrawal fees on [M-Pesa](account) [this month](period)"),
+    ("fees_on", "fees", "how much did i pay in charges on [NCBA](account) [today](period)"),
+    # 2. "how much to X" is money paid to X.
+    ("how_much_to", "spent", "how much to [john](payee)"),
+    ("how_much_to", "spent", "How much to [John](payee)?"),
+    ("how_much_to", "spent", "how much to [Otieno](payee) [this month](period)"),
+    ("how_much_to", "spent", "How much to [Wanjiku](payee) [last month](period)?"),
+    ("how_much_to", "spent", "how much to [Mama Akinyi](payee)"),
+    ("how_much_to", "spent", "how much to [Kerubo Hardware](payee)"),
+    ("how_much_to", "spent", "how much money to [Omondi](payee) [this week](period)"),
+    ("how_much_to", "spent", "how much from [M-Pesa](account) to [john](payee)"),
+    ("how_much_to", "spent", "hw much to [brian](payee)"),
+    ("how_much_to", "spent", "how much to [JOHN](payee)"),
+    ("how_much_to", "spent", "how much to [Naivas](payee) [in October](period)"),
+    ("how_much_to", "spent", "how much to [njeri](payee) pls"),
+    # 3. "what did X cost me" is spending on X.
+    ("cost_me", "spent", "what did [Naivas](payee) cost me"),
+    ("cost_me", "spent", "what did [Kerubo Hardware](payee) cost me [this month](period)"),
+    ("cost_me", "spent", "What did [Java House](payee) cost me [last month](period)?"),
+    ("cost_me", "spent", "what did [john](payee) cost me"),
+    ("cost_me", "spent", "what did [rent](category) cost me [this year](period)"),
+    ("cost_me", "spent", "what did [fuel](category) cost me [last week](period)"),
+    ("cost_me", "spent", "what has [Omondi Motors](payee) cost me so far"),
+    ("cost_me", "spent", "what did [Uber](payee) cost me [in October](period)"),
+    ("cost_me", "spent", "how much did [Bolt](payee) cost me [this week](period)"),
+    ("cost_me", "spent", "WHAT DID [KFC](payee) COST ME"),
+    ("cost_me", "spent", "what did [Wanjiku Salon](payee) cost me [mwezi uliopita](period)"),
+    # 4. "has X paid me" is money in from X; "paid me back" is a loan repaid.
+    ("paid_me", "received_from", "has [Otieno](payee) paid me"),
+    ("paid_me", "received_from", "Has [Otieno](payee) paid me?"),
+    ("paid_me", "received_from", "has [Wanjiku](payee) paid me [this month](period)"),
+    ("paid_me", "received_from", "has [Kerubo Hardware](payee) paid me yet"),
+    ("paid_me", "received_from", "did [Omondi](payee) pay me [last week](period)"),
+    ("paid_me", "received_from", "has [john](payee) sent me money"),
+    ("paid_me", "received_from", "HAS [OTIENO](payee) PAID ME"),
+    ("paid_me", "received_from", "has [Achieng](payee) paid me [today](period)"),
+    ("paid_me", "received_from", "has [KCB](payee) paid me"),
+    ("paid_me", "received_from", "has [Mama Akinyi](payee) paid me already"),
+    ("paid_me", "received_from", "[Otieno](payee) amenilipa"),
+    ("paid_me", "received_from", "has [mwangi](payee) paid me [in March](period)?"),
+    # Look-alikes that keep their own intent.
+    ("contrast", "fees", "what did charges cost me [this month](period)"),
+    ("contrast", "fees", "what did [M-Pesa](account) fees cost me [last month](period)"),
+    ("contrast", "fees", "how much did i pay in charges [this month](period)"),
+    ("contrast", "lent", "has [Otieno](payee) paid me back"),
+    ("contrast", "lent", "has [Otieno](payee) paid back the loan"),
+    ("contrast", "lent", "has [Brian](payee) repaid me"),
+    ("contrast", "lent", "[Otieno](payee) amerudisha pesa"),
+    ("contrast", "sent_to", "how much did i send to [john](payee)"),
+    ("contrast", "count_payments", "how many times did i pay [Kerubo Hardware](payee)"),
+    ("contrast", "balance", "what is my [KCB](account) balance"),
+    ("contrast", "spent", "how much did i spend at [Naivas](payee) [this month](period)"),
+)  # fmt: skip
+
+
+def miss_questions() -> list[tuple[str, Question]]:
+    """The misses and their variants, as (group, question)."""
+    out = []
+    for i, (group, intent, marked) in enumerate(_MISSES):
+        text, spans = parse_marked(marked)
+        q = Question(text, _labels(text, spans), ASK_INTENTS.index(intent), f"miss:{i}")
+        out.append((group, q))
+    return out
+
+
+def conformance_questions() -> list[Question]:
+    """The 68 questions of the conformance file (:mod:`akili.ask.examples`), with their
+    expected reading."""
+    out = []
+    for i, (intent, marked) in enumerate(_CONFORMANCE):
+        text, spans = parse_marked(marked)
+        out.append(Question(text, _labels(text, spans), ASK_INTENTS.index(intent), f"conf:{i}"))
+    return out
 
 
 def _labels(text: str, spans: list[dict[str, Any]]) -> list[int]:
