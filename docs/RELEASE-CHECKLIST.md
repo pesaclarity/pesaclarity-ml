@@ -51,8 +51,8 @@ Copy this list into the release issue and fill it in.
 - [ ] TFLite file within the size budget for 2 GB RAM phones (gate checks
       `model_size_bytes` against `max_model_size_bytes`).
 - [ ] TFLite output matches the Keras model on a synthetic sample.
-- [ ] A model exported from PyTorch (the message reader): its `.weights` file within the
-      budget, and rayo's int8 file within the model's tolerance of the torch model, with the
+- [ ] A model exported from PyTorch (the message reader, the Ask reader): its `.weights`
+      file within the budget, and rayo's int8 file within the model's tolerance of the torch model, with the
       same labels (`parity` in its report).
 - [ ] Model file signed (Ed25519) with the release key held outside this repository; the app
       verifies the signature before use.

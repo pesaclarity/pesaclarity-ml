@@ -6,14 +6,14 @@ tensors and rayo's graph, in a small format any language can read in a few dozen
 
 Three models have one:
 
-- the Ask reader (`ask-reader.weights`, about 251 KB, run in Dart or by rayo) and the Ask
-  writer (`ask-writer.weights`, about 592 KB, run by rayo), still trained in Keras: akili
-  writes the file beside the TFLite file and reads it back out of it
-  ([`akili.ask.reader_weights`](../src/akili/ask/reader_weights.py)), so the weights are byte
-  for byte the int8 and float32 values in it, and the TFLite file stays the reference;
-- the message reader (`reader.weights`, 188,052 bytes, run by rayo), trained in PyTorch and
-  exported through ONNX ([below](#from-a-pytorch-model)). It has no TFLite file: the
-  `.weights` file is what is scored, budgeted and listed in the manifest.
+- the Ask reader (`ask-reader.weights`, 252,860 bytes, run by rayo or in Dart) and the message
+  reader (`reader.weights`, about 188 KB, run by rayo), trained in PyTorch and exported through
+  ONNX ([below](#from-a-pytorch-model)). They have no TFLite file: the `.weights` file is what
+  is scored, budgeted and listed in the manifest;
+- the Ask writer (`ask-writer.weights`, about 592 KB, run by rayo), frozen as shipped
+  (decision 0023): read out of its Keras model's `ask-writer.tflite`
+  ([`akili.ask.writer_weights`](../src/akili/ask/writer_weights.py)), so its weights are byte
+  for byte the int8 and float32 values in it, and that TFLite file stays its reference.
 
 ## Layout
 
@@ -140,26 +140,30 @@ The model's manifest carries the file beside the TFLite fields, which stay for p
 The app checks the size and SHA-256 before it reads the weights, and uses its rules instead of
 the model when they do not match or the version is one it does not read.
 
-A model with no TFLite file (the message reader) has only these fields for its file, and its
-size budget is on the `.weights` file ([READER.md](READER.md#manifest)).
+A model with no TFLite file (the message reader, the Ask reader) has only these fields for its
+file, with `source` (the ONNX file's name, SHA-256 and size) in place of the TFLite fields, and
+its size budget is on the `.weights` file ([READER.md](READER.md#manifest),
+[ASK.md](ASK.md#the-model-and-its-file)).
 
 ## The Ask reader on these weights
 
-Its network is [`build_ask_reader`](../src/akili/ask/keras_reader.py): embeddings, three residual
-convolutions (the third dilated), a slot head (dense, two residual convolutions, dense) and an
-intent head on masked max and mean pooling. The model is dynamic-range quantised: int8 weights,
-float32 everything else. To give TFLite's outputs, a program must also run it the way TFLite's
-hybrid kernels do: before each int8 layer, quantise its float input to int8 on the fly,
+Its network is [`AskReader`](../src/akili/ask/reader_model.py) (the Keras
+[`build_ask_reader`](../src/akili/ask/keras_reader.py) before it, layer for layer):
+embeddings, three residual convolutions (the third dilated), a slot head (dense, two residual
+convolutions, dense) and an intent head on masked max and mean pooling. The model is
+dynamic-range quantised: int8 weights, float32 everything else. A program must run it the way
+TFLite's hybrid kernels (and rayo) do: before each int8 layer, quantise its float input to int8 on the fly,
 asymmetrically, one scale and zero point per input row (each token's row for a dense layer, the
 whole question for a convolution), the range widened to include 0, rounding halves away from
 zero; a dilated convolution runs as `SPACE_TO_BATCH_ND`, so each of its `dilation` phases (the
 rows `i` with `i % dilation == p`) is a row of its own. [`forward`](../src/akili/ask/reader_weights.py)
 is the reference, in NumPy; the app's Dart reader copies it.
 
-Done that way, the outputs are TFLite's to about 1e-4 on the released reader. TFLite's own
-kernels disagree with each other at about that level (XNNPACK and the built-in kernels can
-round one int8 value differently), so the labels are the check, and the probabilities are
-close, not bit-exact.
+Done that way, the outputs are rayo's to 3e-7 on the released reader (on the app,
+misses and conformance questions; the Keras reader's were TFLite's to about 1e-4). Where an
+activation lands within a rounding of a quantisation step, float64 (NumPy) and float32 (rayo,
+Dart) can round one int8 value differently, so the labels are the check, and the
+probabilities are close, not bit-exact.
 
 ## The Ask writer on these weights
 
@@ -189,10 +193,12 @@ model's.
 
 ## Exporting
 
-`akili ask-reader` writes the weights and their manifest fields with every export. For a
-TFLite file exported before, `akili ask-reader-weights --model path/to/ask-reader.tflite`
-writes `ask-reader.weights` beside it (or into `--out`) and, when the manifest there is that
-model's, adds the fields to it. The same TFLite file always gives the same bytes.
+`akili ask-reader` writes the weights, the ONNX file and the manifest with every export
+([below](#from-a-pytorch-model)). For a TFLite file of the Keras reader (`akili ask-reader
+--keras`, until TensorFlow is removed), `akili ask-reader-weights --model
+path/to/ask-reader.tflite` writes `ask-reader.weights` beside it (or into `--out`) and, when
+the manifest there is that model's, adds the fields to it. The same TFLite file always gives
+the same bytes.
 
 ## From a PyTorch model
 
@@ -242,5 +248,12 @@ torch: 2e-2 for the fields and the kind (measured on generated messages and the 
 vectors: fields 1.6e-2 at worst, on a token whose two best labels are close, and 99.9% of
 tokens within 8.6e-3; kind 1.2e-2, on a message it is unsure of, and 3.3e-3 elsewhere).
 
-The TFLite path above stays as it is for the Ask models until they have moved.
+The Ask reader is the second ([ASK.md](ASK.md#the-model-and-its-file)):
+[`akili.ask.reader_model`](../src/akili/ask/reader_model.py) keeps the Keras layer names and
+the module takes `tokens` and `shapes` as two inputs, so its file has the Keras reader's tensors,
+shapes, dtypes and scale axes, and rayo the inputs the app feeds. Its int8 layers move its
+probabilities further from torch's than the message reader's, so it is held to its own
+tolerance ([ASK.md](ASK.md#parity)).
+
+The TFLite path above stays as it is for the frozen Ask writer.
 
