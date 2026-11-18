@@ -123,7 +123,8 @@ def _ask_examples(args: argparse.Namespace) -> int:
 
 
 def _ask_reader(args: argparse.Namespace) -> int:
-    from akili.ask.reader import MODEL_FILE, AskReaderConfig, train_ask_reader
+    from akili.ask.keras_reader import MODEL_FILE, train_ask_reader
+    from akili.ask.reader import AskReaderConfig
 
     cfg = AskReaderConfig(questions=args.questions, epochs=args.epochs, seed=args.seed)
     report = train_ask_reader(cfg, args.out, evaluate=not args.skip_evaluation)
@@ -177,7 +178,7 @@ def _ask_writer_weights(args: argparse.Namespace) -> int:
 
 
 def _ask_reader_probe(args: argparse.Namespace) -> int:
-    from akili.ask.reader import probe_scores
+    from akili.ask.keras_reader import probe_scores
 
     report = probe_scores(Path(args.model))
     _print_probes(report)

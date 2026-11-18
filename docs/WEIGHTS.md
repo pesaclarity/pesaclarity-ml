@@ -145,7 +145,7 @@ size budget is on the `.weights` file ([READER.md](READER.md#manifest)).
 
 ## The Ask reader on these weights
 
-Its network is [`build_ask_reader`](../src/akili/ask/reader.py): embeddings, three residual
+Its network is [`build_ask_reader`](../src/akili/ask/keras_reader.py): embeddings, three residual
 convolutions (the third dilated), a slot head (dense, two residual convolutions, dense) and an
 intent head on masked max and mean pooling. The model is dynamic-range quantised: int8 weights,
 float32 everything else. To give TFLite's outputs, a program must also run it the way TFLite's
