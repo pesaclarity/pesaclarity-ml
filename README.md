@@ -25,7 +25,7 @@ uv run akili epsilon --config configs/dp-sgd.yaml
 uv run akili ledger                       # what every DP run so far has spent, per dataset
 
 uv sync --extra train --extra fl          # add TensorFlow, MLflow and Flower
-uv sync --extra torch                     # PyTorch (CPU) and onnx: the message reader, and the export path models move to
+uv sync --extra torch                     # PyTorch (CPU) and onnx: the message reader and the Ask reader, and the export path models move to
 uv run akili train --config configs/smoke.yaml
 uv run akili train --config configs/dp-sgd.yaml
 uv run akili simulate --config configs/federated-smoke.yaml
@@ -98,8 +98,9 @@ small models and the app's own database lookups answer; nothing leaves the phone
   scope, ...) and marks the words that name a category, payee, period, item, account or
   amount. Its input is the message reader's encoding unchanged, so the app's tokeniser serves
   both. A 1-D convolutional network like the message reader's: about 240k parameters,
-  about 270 KB as TFLite (budget 400 KB). The app runs it in Dart from its plain weights
-  ([docs/WEIGHTS.md](docs/WEIGHTS.md)), read out of the TFLite file.
+  trained in PyTorch and shipped as rayo's int8 `ask-reader.weights` (about 253 KB, budget
+  400 KB; no TFLite file), which the app runs on rayo, or in Dart
+  ([docs/WEIGHTS.md](docs/WEIGHTS.md)).
 - The app matches the marked words against its own records, parses the dates with rules and
   runs the lookup.
 - The **ask writer**, a small causal transformer (about 530k parameters, about 650 KB
@@ -113,25 +114,25 @@ account names; replies combined from about 1,000 hand-written fragments. [docs/A
 conformance cases in [`ask_examples.v1.json`](src/akili/resources/ask_examples.v1.json).
 
 ```sh
-uv run akili ask-reader --out artefacts/ask-reader   # train, export, score unseen templates
-uv run akili ask-reader-probe --model path/to/ask-reader.tflite    # score any exported reader
-uv run akili ask-reader-weights --model path/to/ask-reader.tflite  # plain weights for the app
+uv run akili ask-reader --out artefacts/ask-reader --jobs 5  # [torch] train, export, score unseen templates
+uv run akili ask-reader-probe --model path/to/ask-reader.weights  # score any exported reader
+uv run akili ask-reader-weights --model path/to/ask-reader.tflite # a Keras reader's weights (--keras)
 uv run akili ask-writer --out artefacts/ask-writer   # train, sample and check replies, export
 uv run akili ask-examples                            # regenerate the app's conformance cases
 ```
 
 `ask-reader-report.json` holds the scores ([docs/ASK.md](docs/ASK.md#training-and-scores)
-has the table, against v1). When a fifth of every intent's templates is left out of training,
-in five folds, intent accuracy on the unseen version 1 phrasings is about 0.87 (v1: 0.83)
-and slot F1 about 0.85 (v1: 0.83; payee, category and item lower, period, account and amount
-higher). Many held-out templates are Sheng or Swahili phrasings with
+has the table, against v1 and the Keras v3). Scores are of the int8 file as rayo runs it.
+When a fifth of every intent's templates is left out of training, in five folds, intent
+accuracy on the unseen version 1 phrasings is about 0.88 (v1: 0.83) and slot F1 about 0.86
+(v1: 0.83; payee, category and item lower, period, account and amount higher). Many held-out templates are Sheng or Swahili phrasings with
 words no other template uses, which no model can read from the rest. On a hard held-out set of
 counts, sums for one payee, money in from someone, money in and account balances, with templates
 and names training never sees, intent accuracy is 0.96 and the payee or account is marked
-exactly in 0.93 of the questions naming one (v1: 0.64 and 0.11); on the questions in the app's
-tests, 1.00 and 0.96 (v1: 0.82 and 0.35). It reads the intent of all 68 hand-written
-questions in the conformance file right, and 61 of 62 questions built on the previous
-version's misses ("charges on KCB this month", "how much to john", "has Otieno paid me"). `ask-writer-report.json` samples 2,000 replies at temperature 0.8: about 99.4% pass the
+exactly in 0.94 of the questions naming one (v1: 0.64 and 0.11); on the questions in the app's
+tests, 0.97 and 0.92 (v1: 0.82 and 0.35; the Keras v3: 1.00 and 0.96). It reads the intent of
+all 68 hand-written questions in the conformance file right, and 61 of 62 questions built on
+the previous version's misses ("charges on KCB this month", "how much to john", "has Otieno paid me"). `ask-writer-report.json` samples 2,000 replies at temperature 0.8: about 99.4% pass the
 checker (98.4% for `spent`, scored on its own; the rest fall back to the fixed sentence), and
 the same facts give a different reply about seven times in ten. Real questions
 will score lower; the app falls back to "Sorry, I did not get that" when the reader is unsure.
@@ -197,7 +198,9 @@ src/akili/
   reader/                 the message reader: tokens, synthetic messages, the torch
                           model and training [torch] (keras_train.py: the old Keras
                           reader [train], until TensorFlow is removed)
-  ask/                    Ask: questions, replies, reader and writer training, examples
+  ask/                    Ask: questions, replies, reader and writer training, examples;
+                          reader_model.py: the torch Ask reader [torch]
+                          (keras_reader.py: the old Keras one [train])
   model.py                the Keras categoriser            [train]
   train/                  centralised and DP-SGD training   [train]
   export/                 TFLite export, size budget, plain weights format;
