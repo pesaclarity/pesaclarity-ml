@@ -164,7 +164,7 @@ def _ask_reader(args: argparse.Namespace) -> int:
         print(f"unseen templates: intent accuracy {unseen['mean_intent_accuracy']:.3f}")
         for name, f1 in unseen["mean_slot_f1"].items():
             print(f"  {name:<9} F1 {f1:.3f}")
-        for key in ("v2", "v3"):
+        for key in ("v2", "v3", "v4"):
             if unseen.get(key):
                 v = unseen[key]
                 print(
