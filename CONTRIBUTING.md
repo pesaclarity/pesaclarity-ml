@@ -54,7 +54,8 @@ hook; run `tool/check` before the pull request is merged.
 - Every commit follows [Conventional Commits](https://www.conventionalcommits.org): one short
   line such as `feat: add a Sacco layout`, `fix: …`, `feat!: …` for a breaking change. Pull
   requests into `dev` are rebase-merged, so each commit lands on `dev` as is and the commits set
-  the next version and the changelog. The pre-push hook checks them
+  the next version and the changelog. The pre-push hook checks them; it also
+  accepts git's own `Revert "…"` titles and skips merge commits
   (`tool/commit-titles origin/dev..HEAD` checks by hand).
 - Changes users can see are `feat` or `fix`. Review follow-ups they don't see use a hidden type
   (`refactor`, `test`, `style`, `chore`, `docs`, `ci`, `build`) so the changelog stays clean.

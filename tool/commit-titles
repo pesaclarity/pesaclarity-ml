@@ -6,16 +6,18 @@
 #
 #   tool/commit-titles <rev-range>     e.g. tool/commit-titles origin/dev..HEAD
 #
-# Merge commits are skipped. The pre-push hook calls this for pushed commits.
+# Merge commits are skipped and git's own revert titles pass. The pre-push hook calls this for pushed commits.
 set -euo pipefail
 
 types="feat|fix|perf|refactor|docs|test|build|ci|chore|revert|style"
 pattern="^($types)(\([a-z0-9-]+\))?!?: [^ ].*$"
+# git revert's own titles, nested too (Revert "Revert "...""); release-please reads them.
+revert='^Revert ".+"$'
 
 bad=0
 while IFS= read -r line; do
   sha=${line%% *} title=${line#* }
-  if [[ ! "$title" =~ $pattern ]]; then
+  if [[ ! "$title" =~ $pattern && ! "$title" =~ $revert ]]; then
     echo "Bad commit title: ${sha:0:9} $title" >&2
     bad=1
   fi
