@@ -155,7 +155,9 @@ def test_weights_and_manifest(trained: tuple[Path, dict[str, object]]) -> None:
     for name in ("intent", "slots"):
         assert parity[name]["labels_compared"] == parity[name]["labels_compared_same"]
     assert parity["slots"]["labels_compared"] > 0  # two epochs leave few intents sure
-    assert parity["dart_reference"]["max_abs"] < 1e-4
+    # The Dart reader's reference against rayo (the app's 1e-4); against rayo-convert's float64
+    # reference, a rounding of one int8 value can fall the other way.
+    assert parity["dart_reference"]["max_abs"] < (1e-4 if _rayo_dir() else 1e-3)
     assert {"hard_held_out", "app_questions", "misses", "conformance_questions"} <= set(report)
 
 
