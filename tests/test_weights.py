@@ -130,9 +130,9 @@ def _fake_conversion(
 
 
 def test_weights_from_rayo_convert(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    from akili.ask.reader_weights import LAYERS, RAYO_OPTIONS, _required, read_tflite
+    from akili.ask.reader_weights import LAYERS, RAYO_OPTIONS, read_tflite, required_tensors
 
-    names = _required()
+    names = required_tensors()
     assert len(names) == 2 + 2 * (len(LAYERS) - 2)
     seen = _fake_conversion(monkeypatch, [*names, "const"])
     model = tmp_path / "ask-reader.tflite"
