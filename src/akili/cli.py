@@ -77,7 +77,7 @@ def _reader_examples(args: argparse.Namespace) -> int:
 
 
 def _reader(args: argparse.Namespace) -> int:
-    from akili.reader.train import ReaderConfig, train_reader
+    from akili.reader.keras_train import MODEL_FILE, ReaderConfig, train_reader
 
     cfg = ReaderConfig(messages=args.messages, epochs=args.epochs, seed=args.seed)
     report = train_reader(cfg, args.out, evaluate=not args.skip_evaluation)
@@ -87,7 +87,7 @@ def _reader(args: argparse.Namespace) -> int:
         for name, f1 in unseen["mean_f1"].items():
             print(f"  {name:<13} {f1:.3f}")
         print(f"  kind accuracy {unseen['mean_kind_accuracy']:.3f}")
-    print(f"reader {report['model_size_bytes']} bytes at {Path(args.out) / 'reader.tflite'}")
+    print(f"reader {report['model_size_bytes']} bytes at {Path(args.out) / MODEL_FILE}")
     return 0
 
 
