@@ -49,6 +49,8 @@ from akili.ask.questions import (
     to_arrays,
     v1_template_ids,
     v2_template_ids,
+    v3_template_ids,
+    v4_template_ids,
 )
 from akili.ask.reader_weights import WEIGHTS_FILE
 from akili.ask.schema import ASK_INTENTS, ASK_SCHEMA_VERSION, SLOT_LABELS
@@ -241,12 +243,12 @@ def fold_questions(
     cfg: AskReaderConfig, i: int
 ) -> tuple[list[Question], dict[str, list[Question] | None]]:
     """Fold ``i``: the questions to train on (the other folds' templates) and the held-out
-    ones, as ``v1``, ``v2`` and ``v3`` (the templates of each version; ``None`` when the fold
-    holds none). The version 1 templates are scored on the very questions version 1 was scored
-    on (same folds, seeds and value lists); the version 2 and 3 ones on their own, with
-    invented names."""
+    ones, as ``v1`` to ``v4`` (the templates of each version; ``None`` when the fold holds
+    none). The version 1 templates are scored on the very questions version 1 was scored on
+    (same folds, seeds and value lists); the later ones on their own, with invented names, and
+    each version's on the same questions as when it was added."""
     all_ids = set(template_ids())
-    v1, v2 = v1_template_ids(), v2_template_ids()
+    v1 = v1_template_ids()
     held = folds(cfg.folds, seed=cfg.seed)[i]
     train = generate(
         cfg.questions, seed=cfg.seed + 100 + i, templates=all_ids - held, pool=names.TRAIN
@@ -254,7 +256,12 @@ def fold_questions(
     test: dict[str, list[Question] | None] = {
         "v1": generate(cfg.questions // 5, seed=cfg.seed + 200 + i, templates=held & v1)
     }
-    for key, ids, seed in (("v2", held & v2, 300), ("v3", held - v1 - v2, 400)):
+    later = (
+        ("v2", held & v2_template_ids(), 300),
+        ("v3", held & v3_template_ids(), 400),
+        ("v4", held & v4_template_ids(), 500),
+    )
+    for key, ids, seed in later:
         test[key] = (
             generate(cfg.questions // 20, seed=cfg.seed + seed + i, templates=ids, pool=names.TRAIN)
             if ids
@@ -291,6 +298,7 @@ def summarise_folds(per_fold: list[dict[str, Any]]) -> dict[str, Any]:
         "folds": results,
         "v2": later("v2"),
         "v3": later("v3"),
+        "v4": later("v4"),
     }
 
 
@@ -446,7 +454,7 @@ def torch_outputs(model: Any, x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
 def fold_scores(cfg: AskReaderConfig, i: int, rayo_dir: str | Path | None = None) -> dict[str, Any]:
     """Fold ``i`` (:func:`fold_questions`): train on the other folds' templates, export, and
-    score the converted int8 file on this fold's, as ``v1``, ``v2`` and ``v3``. A fold can run
+    score the converted int8 file on this fold's, as ``v1`` to ``v4``. A fold can run
     in a process of its own; :func:`summarise_folds` joins them."""
     train, test = fold_questions(cfg, i)
     run = converted_run(runner(export_module(fit(cfg, train)), rayo_dir))

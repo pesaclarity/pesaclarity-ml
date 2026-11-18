@@ -21,13 +21,17 @@ and surnames, or made-up names; there are no phone numbers or real messages.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import TypeVar
 
 import numpy as np
 
 from akili.ask import names
 from akili.ask.schema import ASK_INTENTS, SLOT_LABELS
 from akili.reader.tokens import MAX_TOKENS, encode, tokenise
+
+T = TypeVar("T")
 
 CATEGORY = SLOT_LABELS.index("category")
 PAYEE = SLOT_LABELS.index("payee")
@@ -2122,6 +2126,191 @@ _V3_TEMPLATES: dict[str, list[str]] = {
 for _intent, _extra in _V3_TEMPLATES.items():
     TEMPLATES[_intent].extend(_extra)
 
+V3_TEMPLATE_COUNTS: dict[str, int] = {intent: len(TEMPLATES[intent]) for intent in ASK_INTENTS}
+
+# Version 4: the patterns the PyTorch v3 reader was weakest on. Money in from a name given in
+# few words ("received from X", "got from X", "was paid by X"), with sends to a name as the
+# look-alike; a payee inside compare, trend, biggest-payment, debt, bill and income-source
+# questions ("compare my spending at X with last month"); names that are one word ({short}) or
+# whose words include plain ones ({long}: "Example Corner", "Golden Butchery"), so they come out
+# whole; and amounts and amount filters written many ways ({amt}: "over 1000", "ksh 2,500 and
+# above", "at least 1.5k"; {sum}: "2500", "kes 1,200"), next to a period or a name.
+LEXICON["got_in"] = [
+    "received",
+    "got",
+    "recieved",
+    "gotten",
+    "collected",
+    "was paid",
+    "got paid",
+    "was sent",
+    "pokea",
+]
+LEXICON["paid_by"] = ["paid by", "sent by", "paid from", "sent from", "transferred from"]
+LEXICON["sent_out"] = ["sent", "paid", "transferred", "sent money", "gave", "forwarded"]
+LEXICON["vs"] = ["with", "to", "against", "and", "vs", "versus"]
+_V4_TEMPLATES: dict[str, list[str]] = {
+    "received_from": [
+        "<got_in> from {short} " + _P,
+        "<got_in> from {long} " + _P,
+        "<got_in> from {name} [so far|altogether|in total|]",
+        "[i|] [was|got] <paid_by> {short} " + _P,
+        "[what|how much|everything|all] [i|i've|i have] <got_in> from {short} " + _P,
+        "[what|how much|everything|all] [i|i've|i have] <got_in> from {long} " + _P,
+        "from {short} [how much|what] [did i get|came in|did i receive|have i received] " + _P,
+        "{period} <got_in> from [{short}|{long}]",
+        "[incoming|received] [money|payments|transfers|deposits|<cash>] from [{short}|{long}] "
+        + _P,
+        "[any|all|the] [transfers|deposits|payments] [in|that came in] from {long} " + _P,
+        "[received|got] [from|by] {short} [how much|what|<much>] " + _P,
+        "[money|payments] {short} [sent|paid|transferred] [to me|me|my way] " + _P,
+    ],
+    # Look-alikes: money out to the same kinds of names.
+    "sent_to": [
+        "<sent_out> to {short} " + _P,
+        "<sent_out> to {long} [so far|altogether|in total|] " + _P,
+        "[what|how much|everything|all] [i|i've|i have] <sent_out> to {short} " + _P,
+        "{period} <sent_out> to [{short}|{long}]",
+        "[outgoing|sent] [money|transfers|payments|<cash>] to [{short}|{long}] " + _P,
+        "to {short} [how much|what] [did i send|went out|have i sent] " + _P,
+    ],
+    "compare": [
+        "<compare> [my|] <spending> [at|with|on] {long} <vs> {period}",
+        "<compare> [my|] <spending> [at|with] {short} <vs> {period}",
+        "<compare> [my|] [payments|<spending>|what i spent] [at|to] {name} {period} <vs> {period2}",
+        "[how does|how did] my <spending> [at|with] [{long}|{short}] {period} compare [with|to] "
+        "{period2}",
+        "did i <spend> <more> at [{long}|{short}] {period} <than> {period2}",
+        "[{long}|{short}] {period} <than> {period2}",
+        "<compare> [{long}|{short}] [spending|payments|] <vs> {period}",
+        "[is|was] my <spending> at {long} <more> {period} <than> {period2}",
+        "<compare> [my|] {category} [<spending>|] at {long} <vs> {period}",
+    ],
+    "trend": [
+        "how has my <spending> [at|with|on] [{long}|{short}] <changed> " + _P,
+        "[is|has] my <spending> at {long} [<change>|<changed>] " + _P,
+        "[how are|how have] [my|] [payments|<spending>] [to|at] {long} [<change>|<changed>] "
+        "[lately|over time|]",
+        "{long} [spending|payments] <trend> " + _P,
+        "[am i|have i been] spending more at {short} [lately|these days|recently|]",
+        "<show> [me|] [the|my] <trend> [for|of|at] [{long}|{short}] " + _P,
+        "has [what i pay|my spending] [at|to] {long} <changed> " + _P,
+    ],
+    "biggest_payment": [
+        "what was my <biggest> <payment> [to|at] {long} " + _P,
+        "<biggest> <payment> [to|at|with] [{short}|{long}] " + _P,
+        "[my|the] <biggest> [payment|transfer|purchase] [i made|i sent|ever] [to|at] {short} " + _P,
+        "<biggest> <payment> {amt} " + _P,
+    ],
+    "debts": [
+        "<much> [do i|do i still] <owe> [to|] [{long}|{short}]",
+        "[what is|what's] my [debt|loan|balance] [with|at|to] {long}",
+        "[am i|do i] [still|] owing {short} [anything|money|]",
+    ],
+    "bills_due": [
+        "[when is|is] [my|the] {long} [bill|payment] [due|coming up]",
+        "<bills> [for|from|to] [{long}|{short}] <due> " + _P,
+        "[any|is there a] [bill|payment] [from|for] {short} <due> " + _P,
+    ],
+    "income_sources": [
+        "[how much of my|what share of my] <income> [comes|came] from {long} " + _P,
+        "[is|was] [{long}|{short}] [my|a] [main|biggest|top] [source of income|income source|"
+        "payer] " + _P,
+        "[my|] [income|money|earnings] sources [besides|other than|apart from|like] {long} " + _P,
+        "<income> [sources|source|payers] [from|including|with] [{long}|{short}] " + _P,
+    ],
+    "count_payments": [
+        "<how_often> [did i|have i] [pay|spend|send] {amt} " + _P,
+        "<count> <payments> {amt} {period}",
+        "[how many|number of] [payments|purchases|transfers] [of|worth|for] {amt} [at|to] "
+        "[{long}|{short}] " + _P,
+        "{period} [how many|count the] [payments|transactions] [went|were] {amt}",
+        "[payments|transactions|purchases] {amt} [how many|count] " + _P,
+        "how many [visits|trips|purchases|payments] to [{long}|{short}] " + _P,
+    ],
+    "spent": [
+        "[total|sum] of [all|] [my|] [payments|purchases|transactions] {amt} " + _P,
+        "<much> [went|was spent] [in|on] [payments|purchases] [worth|of|that were] {amt} " + _P,
+        "{period} <much> did i <spend> [in|on] [payments|purchases] {amt}",
+        "[my|] [spending|purchases] {amt} [at {long}|on {category}|] " + _P,
+        "<much> [did i|have i] [spent|paid] at [{long}|{short}] [in|on] [payments|purchases] {amt}",
+    ],
+    "received": [
+        "<much> came in [as|in] [payments|deposits|transfers] {amt} " + _P,
+        "[deposits|payments i received|money in] {amt} " + _P,
+        "{period} <much> [came in|did i receive] [in|as] [deposits|payments] {amt}",
+    ],
+    "top_payees": [
+        "[who|which payees|which shops] [got|received] [payments|transfers] {amt} [from me|] " + _P,
+        "<who> [did i|do i] [pay|send] {amt} [to|] " + _P,
+    ],
+    "safe_to_spend": [
+        "[can i|could i|is it okay to] [spend|pay|use] {sum} [at {long}|on {category}|] " + _P,
+        "[will|would] {sum} [be|leave me] [okay|fine|short] " + _P,
+    ],
+    "refine": [
+        "[filter|limit it|narrow it] to [payments|transactions|ones] {amt}",
+        "[now|same but|but] [only|just] {amt}",
+        "{amt} [only|pia|too]",
+        "[now|ok] [do|show] [{long}|{short}] instead",
+        "[what about|how about] [{long}|{short}] [instead|then|too]",
+    ],
+}
+for _intent, _extra in _V4_TEMPLATES.items():
+    TEMPLATES[_intent].extend(_extra)
+
+# Amounts for {amt} and {sum}: a value from AMOUNT_VALUES written one of AMOUNT_FORMS ways,
+# and for {amt} a filter around it (a word before, a word after, or a range).
+AMOUNT_VALUES = [
+    50, 100, 150, 200, 250, 300, 400, 500, 600, 750, 800, 1000, 1200, 1500, 2000, 2500, 3000,
+    3500, 4000, 4500, 5000, 6000, 7500, 8000, 10000, 12000, 15000, 20000, 25000, 30000, 40000,
+    50000, 75000, 100000,
+]  # fmt: skip
+AMOUNT_BEFORE = [
+    "over", "above", "more than", "greater than", "bigger than", "exceeding", "at least",
+    "under", "below", "less than", "at most", "not more than", "up to", "zaidi ya", "chini ya",
+    "juu ya",
+]  # fmt: skip
+AMOUNT_AFTER = ["and above", "or more", "and below", "or less", "plus", "and over", "na zaidi"]
+AMOUNT_RANGE = [("between", "and"), ("from", "to"), ("", "to"), ("", "-")]
+AMOUNT_CURRENCY = ["ksh", "kes", "Ksh", "KES", "sh", "ksh.", "Kshs", "kshs"]
+AMOUNT_UNITS = ["bob", "shillings", "/=", "/-", "bob only"]
+
+
+def _money_text(g: _Gen, value: int) -> str:
+    """``value`` as people type it: "1000", "1,000", "1k", "1.5K", "ksh 1,000", "1000 bob"."""
+    plain, comma = str(value), f"{value:,}"
+    forms = [plain, comma, comma]
+    if value >= 1000 and value % 500 == 0:
+        k = f"{value / 1000:g}"
+        forms += [f"{k}k", f"{k}k", f"{k}K", f"{k} k"]
+    number = g.pick(forms)
+    r = g.rng.random()
+    if r < 0.3:
+        currency = g.pick(AMOUNT_CURRENCY)
+        return f"{currency}{number}" if g.chance(0.3) else f"{currency} {number}"
+    if r < 0.42 and not number.lower().endswith("k"):
+        unit = g.pick(AMOUNT_UNITS)
+        return f"{number}{unit}" if unit[0] == "/" else f"{number} {unit}"
+    return number
+
+
+def _amount(g: _Gen, bound: bool) -> str:
+    """An amount ({sum}) or, with ``bound``, an amount filter ({amt})."""
+    value = g.pick(AMOUNT_VALUES)
+    if not bound:
+        return _money_text(g, value)
+    r = g.rng.random()
+    if r < 0.6:
+        return f"{g.pick(AMOUNT_BEFORE)} {_money_text(g, value)}"
+    if r < 0.8:
+        return f"{_money_text(g, value)} {g.pick(AMOUNT_AFTER)}"
+    upper = g.pick([v for v in AMOUNT_VALUES if v > value] or [value * 2])
+    start, middle = AMOUNT_RANGE[int(g.rng.integers(len(AMOUNT_RANGE)))]
+    text = f"{_money_text(g, value)} {middle} {_money_text(g, upper)}"
+    return f"{start} {text}" if start else text
+
+
 _PREFIXES = [
     "hey",
     "hi",
@@ -2173,7 +2362,7 @@ class _Gen:
         short lists above ("wide" names). Without one, version 1 questions come out exactly as
         they always did."""
 
-    def pick(self, options: list[str]) -> str:
+    def pick(self, options: Sequence[T]) -> T:
         return options[int(self.rng.integers(len(options)))]
 
     def chance(self, p: float) -> bool:
@@ -2215,6 +2404,12 @@ def _fill(g: _Gen, hole: str) -> tuple[str, int]:  # noqa: PLR0911
         return pool.name(g.rng), PAYEE
     if hole == "bank":
         return (pool.sacco(g.rng) if g.chance(0.15) else g.pick(BANK_PAYEES)), PAYEE
+    if hole == "short":
+        return pool.short_name(g.rng), PAYEE
+    if hole == "long":
+        return pool.long_name(g.rng), PAYEE
+    if hole in ("amt", "sum"):
+        return _amount(g, hole == "amt"), AMOUNT
     if hole == "cashacct":
         return g.pick(["cash", "Cash", "CASH", "my cash"]), ACCOUNT
     if hole == "paccount":
@@ -2323,9 +2518,9 @@ def generate(
 
 def folds(k: int, seed: int = 0) -> list[set[str]]:
     """Split every intent's templates into ``k`` held-out sets, so each template is held out
-    exactly once and every fold holds some of every intent out. Version 1 and version 2
-    templates fall in the same folds as before later versions were added, so their scores
-    compare across versions."""
+    exactly once and every fold holds some of every intent out. Each version's templates fall
+    in the same folds as before later versions were added (one permutation per version and
+    intent), so their scores compare across versions."""
     rng = np.random.default_rng(seed)
     out: list[set[str]] = [set() for _ in range(k)]
     for intent in ASK_INTENTS:
@@ -2333,7 +2528,11 @@ def folds(k: int, seed: int = 0) -> list[set[str]]:
         for j, i in enumerate(order):
             out[j % k].add(f"{intent}:{int(i)}")
     for step, (counts, ends) in enumerate(
-        [(V1_TEMPLATE_COUNTS, V2_TEMPLATE_COUNTS), (V2_TEMPLATE_COUNTS, None)]
+        [
+            (V1_TEMPLATE_COUNTS, V2_TEMPLATE_COUNTS),
+            (V2_TEMPLATE_COUNTS, V3_TEMPLATE_COUNTS),
+            (V3_TEMPLATE_COUNTS, None),
+        ]
     ):
         rng = np.random.default_rng(seed + 1 + step)
         for intent in ASK_INTENTS:
@@ -2355,6 +2554,22 @@ def v2_template_ids() -> set[str]:
         f"{intent}:{i}"
         for intent in ASK_INTENTS
         for i in range(V1_TEMPLATE_COUNTS[intent], V2_TEMPLATE_COUNTS[intent])
+    }
+
+
+def v3_template_ids() -> set[str]:
+    return {
+        f"{intent}:{i}"
+        for intent in ASK_INTENTS
+        for i in range(V2_TEMPLATE_COUNTS[intent], V3_TEMPLATE_COUNTS[intent])
+    }
+
+
+def v4_template_ids() -> set[str]:
+    return {
+        f"{intent}:{i}"
+        for intent in ASK_INTENTS
+        for i in range(V3_TEMPLATE_COUNTS[intent], len(TEMPLATES[intent]))
     }
 
 
