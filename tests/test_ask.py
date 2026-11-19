@@ -1,11 +1,9 @@
-import hashlib
 import json
 import re
 
 import numpy as np
 import pytest
 
-from akili._optional import has_module
 from akili.ask import examples, names, probes, questions, replies
 from akili.ask.reader import AskReaderConfig, training_questions
 from akili.ask.schema import (
@@ -23,8 +21,6 @@ from akili.ask.schema import (
     reply_tokens,
 )
 from akili.reader.tokens import MAX_TOKENS, encode, tokenise
-
-needs_tf = pytest.mark.skipif(not has_module("tensorflow"), reason="needs the [train] extra")
 
 
 def test_lists_are_small_and_unique() -> None:
@@ -363,68 +359,6 @@ def test_writer_targets_mask_the_facts() -> None:
         assert y[i, n + len(e.reply)] == TOKEN_ID["<eos>"]
 
 
-@pytest.mark.tf
-@needs_tf
-def test_ask_reader_trains_and_exports(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    from akili.ask.keras_reader import (
-        MANIFEST_FILE,
-        MODEL_FILE,
-        build_ask_reader,
-        run_tflite,
-        train_ask_reader,
-    )
-    from akili.ask.reader import AskReaderConfig
-
-    cfg = AskReaderConfig(questions=1500, epochs=1)
-    assert build_ask_reader(cfg).count_params() <= 300_000
-    report = train_ask_reader(cfg, tmp_path, evaluate=False)
-    manifest = json.loads((tmp_path / MANIFEST_FILE).read_text())
-    assert (tmp_path / MODEL_FILE).stat().st_size == manifest["model_size_bytes"]
-    assert manifest["outputs"]["intent"]["labels"] == list(ASK_INTENTS)
-    assert manifest["outputs"]["slots"]["labels"] == list(SLOT_LABELS)
-    assert manifest["ask_schema_version"] == 1
-    assert report["model_size_bytes"] < 400_000
-    x, _, _ = questions.to_arrays(questions.generate(8, seed=9))
-    intent, slots = run_tflite(tmp_path / MODEL_FILE, x)
-    assert intent.shape == (8, len(ASK_INTENTS))
-    assert slots.shape == (8, MAX_TOKENS, len(SLOT_LABELS))
-    np.testing.assert_allclose(intent.sum(-1), 1.0, atol=1e-3)
-    assert {"hard_held_out", "app_questions", "misses", "conformance_questions"} <= set(report)
-    assert len(report["app_questions"]["readings"]) == len(probes.app_questions())
-
-    # The plain weights are the TFLite file's, and give TFLite's outputs. TFLite's own kernels
-    # (XNNPACK and the built-in ones) differ from each other by a few 1e-4 on this barely
-    # trained model, where an int8 rounding falls the other way.
-    from akili.ask.reader_weights import WEIGHTS_FILE, export_weights, forward, required_tensors
-    from akili.export.weights import read_weights
-
-    blob = (tmp_path / WEIGHTS_FILE).read_bytes()
-    assert manifest["weights_file"] == WEIGHTS_FILE
-    assert manifest["weights_size_bytes"] == len(blob)
-    assert manifest["weights_sha256"] == hashlib.sha256(blob).hexdigest()
-    assert manifest["weights_format_version"] == 1
-    weights = read_weights(blob)
-    assert weights.source_sha256 == manifest["model_sha256"]
-    assert weights.tensors["conv_1.kernel"].value.dtype == np.int8
-    # The layers' tensors are the model's parameters; rayo-convert adds the pooling's scalars.
-    assert set(required_tensors()) <= set(weights.tensors)
-    params = sum(weights.tensors[n].value.size for n in required_tensors())
-    assert params == report["parameters"]
-    for i in range(len(x)):
-        d_intent, d_slots = forward(weights, x[i])
-        n = int((x[i, MAX_TOKENS:] > 0).sum())  # padding positions are meaningless
-        np.testing.assert_allclose(d_intent, intent[i], atol=1e-3)
-        np.testing.assert_allclose(d_slots[:n], slots[i, :n], atol=1e-3)
-    # Exporting again from the TFLite file gives the same bytes and leaves the manifest as is.
-    again = tmp_path / "again"
-    again.mkdir()
-    assert (
-        export_weights(tmp_path / MODEL_FILE, again)["weights_sha256"]
-        == hashlib.sha256(blob).hexdigest()
-    )
-    assert (again / WEIGHTS_FILE).read_bytes() == blob
-
-
 def test_token_swaps_leave_shapes_and_padding_alone() -> None:
     from akili.ask.reader import AskReaderConfig, swap_tokens
 
@@ -440,74 +374,3 @@ def test_token_swaps_leave_shapes_and_padding_alone() -> None:
     invented = named & ~np.isin(x[:, :MAX_TOKENS], list(known))
     assert (out[:, :MAX_TOKENS][~named] == x[:, :MAX_TOKENS][~named]).all()
     assert (out[:, :MAX_TOKENS][invented] != x[:, :MAX_TOKENS][invented]).mean() > 0.99
-
-
-@pytest.mark.tf
-@needs_tf
-def test_ask_writer_trains_exports_and_matches_keras(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    from akili.ask.writer import (
-        MANIFEST_FILE,
-        MODEL_FILE,
-        VOCAB,
-        AskWriterConfig,
-        TFLiteWriter,
-        build_writer,
-        fit_writer,
-        sample,
-        to_tflite,
-    )
-
-    cfg = AskWriterConfig(examples=400, epochs=1, eval_samples=20)
-    params = build_writer(cfg).count_params()
-    assert 250_000 <= params <= 1_000_000
-    model = fit_writer(cfg, replies.generate(cfg.examples, seed=0))
-    path = tmp_path / MODEL_FILE
-    path.write_bytes(to_tflite(cfg, model))
-    assert path.stat().st_size <= 1_500_000
-
-    lite = TFLiteWriter(path)
-    x = np.zeros((2, 64), dtype=np.int32)
-    x[:, :5] = [4, 46, 2, 70, 71]
-    x[1, 5:] = 80  # later tokens never change earlier rows: the model is causal
-    keras_logits = np.asarray(model(x, training=False))
-    lite_logits = lite(x)
-    assert lite_logits.shape == (2, 64, len(VOCAB))
-    np.testing.assert_allclose(keras_logits[0, :5], keras_logits[1, :5], atol=1e-4)
-    assert np.abs(keras_logits - lite_logits).max() < 0.5
-
-    out = sample(lite, replies.random_facts(3, seed=1), 0.8, np.random.default_rng(0))
-    assert len(out) == 3
-
-    # The plain weights rayo runs, read out of the TFLite file: the NumPy reference on them
-    # gives the TFLite built-in kernels' logits.
-    import tensorflow as tf
-
-    from akili.ask.writer_weights import WEIGHTS_FILE, export_weights, forward
-    from akili.export.weights import read_weights
-
-    fields = export_weights(path, tmp_path, n_layers=cfg.layers, heads=cfg.heads)
-    weights = read_weights((tmp_path / WEIGHTS_FILE).read_bytes())
-    assert fields["weights_size_bytes"] < path.stat().st_size
-    assert weights.graph is not None
-    assert weights.graph["states"][0]["shape"] == [64, cfg.dim]
-    builtin = tf.lite.Interpreter(
-        model_path=str(path),
-        experimental_op_resolver_type=tf.lite.experimental.OpResolverType.BUILTIN_WITHOUT_DEFAULT_DELEGATES,
-    )
-    builtin.allocate_tensors()
-    builtin.set_tensor(builtin.get_input_details()[0]["index"], x[1:])
-    builtin.invoke()
-    want = builtin.get_tensor(builtin.get_output_details()[0]["index"])[0]
-    got = forward(weights, x[1], cfg.heads)
-    # Exact up to float rounding; at most an int8 rounding flip apart further in, where a
-    # 1e-7 difference can land a value on the other side of a rounding boundary.
-    assert np.abs(got[:5] - want[:5]).max() < 1e-4
-    assert np.abs(got - want).max() < 0.05
-
-    from akili.ask.writer import train_ask_writer
-
-    train_ask_writer(cfg, tmp_path / "run", evaluate=False)
-    manifest = json.loads((tmp_path / "run" / MANIFEST_FILE).read_text())
-    assert manifest["vocab"] == VOCAB
-    assert manifest["input"]["shape"] == [1, 64]
-    assert set(manifest["fallbacks"]) == set(REPLY_KINDS)

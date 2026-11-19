@@ -2,7 +2,7 @@
 
 Akili is the machine learning side of Pesa Clarity, the free, ad-free app for Android and iPhone that turns M-Pesa
 and bank SMS into a daily plan. It holds the small models that run on the phone (trained in PyTorch and shipped as rayo's
-weights; the frozen Ask writer is still Keras and TFLite): the
+weights; the Ask writer is frozen as shipped): the
 transaction categoriser, the message reader, and Ask's question reader and reply writer. Around
 them sit a synthetic data generator, centralised and DP-SGD training, the client side of
 federated learning, export with a size budget, MLflow tracking, and the privacy release gate
@@ -19,23 +19,26 @@ Needs Python 3.12 and [uv](https://docs.astral.sh/uv/).
 
 ```sh
 uv sync                                   # core: data, configs, features, privacy gate
-uv run pytest                             # core tests; TensorFlow and torch tests skip
+uv run pytest                             # core tests; torch tests skip
 uv run akili synth --out /tmp/tx.jsonl    # write synthetic transactions
 uv run akili vectors                      # regenerate the feature test vectors for the app
 uv run akili ledger                       # what every DP run so far has spent, per dataset
 
 uv sync --extra torch                     # PyTorch (CPU), Opacus, onnx and MLflow
 uv run akili epsilon --config configs/dp-sgd.yaml   # privacy accounting needs Opacus
-uv run akili accountants --check          # dp-accounting's and Opacus's budgets side by side
+uv run akili accountants --check          # Opacus's budgets beside the signed-off figures
 uv run akili fine-tune-vectors            # regenerate the app's fine-tuning vectors
 uv run akili train --config configs/smoke.yaml
 uv run akili train --config configs/dp-sgd.yaml
 uv run akili simulate --config configs/federated-smoke.yaml
 uv run akili audit --quick --config configs/audit-no-dp.yaml --config configs/audit-dp-sgd.yaml
 
-uv sync --extra train --extra fl          # TensorFlow, MLflow, Opacus and Flower: the Keras models
-uv run akili train --keras --config configs/smoke.yaml   # the old Keras categoriser, until TensorFlow goes
+uv sync --extra torch --extra fl          # and Flower, for the federated client
 ```
+
+There is no TensorFlow, Keras or TFLite here any more (decision 0023, stage 5). The last
+commit with them is tagged `tflite-archive`; its release holds the TFLite files the shipped
+weights came from (see [TFLite archive](#tflite-archive)).
 
 Runs write rayo's int8 `categoriser.weights`, the ONNX file it came from,
 `model-manifest.json`, `export-report.json`, `labels.json`, `privacy-report.json`,
@@ -112,10 +115,13 @@ small models and the app's own database lookups answer; nothing leaves the phone
   ([docs/WEIGHTS.md](docs/WEIGHTS.md)).
 - The app matches the marked words against its own records, parses the dates with rules and
   runs the lookup.
-- The **ask writer**, a small causal transformer (about 530k parameters, about 650 KB
-  as TFLite), writes a short, warm reply from fact tokens such as `kind=spent cmp=less {amount}
-  {category} {period}`. Replies hold placeholders only, never a number; the app fills them,
-  runs a checker and falls back to a fixed sentence when a reply fails it.
+- The **ask writer**, a small causal transformer (about 530k parameters; `ask-writer.weights`,
+  about 590 KB), writes a short, warm reply from fact tokens such as `kind=spent cmp=less
+  {amount} {category} {period}`. Replies hold placeholders only, never a number; the app fills
+  them, runs a checker and falls back to a fixed sentence when a reply fails it. It is
+  **frozen as shipped** until Ask LM replaces it (decision 0023): it was trained in Keras, and
+  that code went with TensorFlow, so it cannot be retrained from `dev`. This repository keeps
+  its vocabulary, the reply grammar and checker, and the conformance cases.
 
 Both train on synthetic text only: questions from about 850 templates with Kenyan English,
 Sheng and Swahili wording, typos and no punctuation, and thousands of invented payee and
@@ -125,8 +131,6 @@ conformance cases in [`ask_examples.v1.json`](src/akili/resources/ask_examples.v
 ```sh
 uv run akili ask-reader --out artefacts/ask-reader --jobs 5  # [torch] train, export, score unseen templates
 uv run akili ask-reader-probe --model path/to/ask-reader.weights  # score any exported reader
-uv run akili ask-reader-weights --model path/to/ask-reader.tflite # a Keras reader's weights (--keras)
-uv run akili ask-writer --out artefacts/ask-writer   # train, sample and check replies, export
 uv run akili ask-examples                            # regenerate the app's conformance cases
 ```
 
@@ -141,9 +145,9 @@ and names training never sees, intent accuracy is 0.97 and the payee or account 
 exactly in 0.94 of the questions naming one (v1: 0.64 and 0.11); on the questions in the app's
 tests, 1.00 and 1.00 (v1: 0.82 and 0.35; the Keras v3: 1.00 and 0.96). It reads the intent of
 all 68 hand-written questions in the conformance file right, and 61 of 62 questions built on
-the previous version's misses ("charges on KCB this month", "how much to john", "has Otieno paid me"). `ask-writer-report.json` samples 2,000 replies at temperature 0.8: about 99.4% pass the
+the previous version's misses ("charges on KCB this month", "how much to john", "has Otieno paid me"). The shipped writer's report (v0.2.0) sampled 2,000 replies at temperature 0.8: about 99.4% passed the
 checker (98.4% for `spent`, scored on its own; the rest fall back to the fixed sentence), and
-the same facts give a different reply about seven times in ten. Real questions
+the same facts gave a different reply about seven times in ten. Real questions
 will score lower; the app falls back to "Sorry, I did not get that" when the reader is unsure.
 
 ## Configs and tracks
@@ -166,7 +170,9 @@ DP-SGD is implemented in [`train/torch_dp_sgd.py`](src/akili/train/torch_dp_sgd.
 `torch.func` per-person gradients (Opacus's own engine clips per example). Budgets are computed
 with [Opacus](https://opacus.ai)'s accountants: RDP for the gate, PRV for the tighter figure
 (decision 0023; [DP-SGD-REVIEW.md](docs/DP-SGD-REVIEW.md#2026-11-19-the-pytorch-loop-and-opacus)
-compares them with Google's `dp-accounting`, which computed the figures before).
+compares them with Google's `dp-accounting`, which computed the figures signed off before;
+[`accountants.v1.json`](src/akili/resources/accountants.v1.json) keeps those figures as the
+record, and `akili accountants --check` recomputes Opacus's beside them).
 
 The privacy unit is one person, as in federated training: each step samples people, and each
 sampled person's examples give one clipped gradient, so the budget covers everything they
@@ -210,37 +216,50 @@ src/akili/
   synthetic.py            fake transactions for tests and smoke training
   vectors.py              feature test vectors (`akili vectors`)
   reader/                 the message reader: tokens, synthetic messages, the torch
-                          model and training [torch] (keras_train.py: the old Keras
-                          reader [train], until TensorFlow is removed)
-  ask/                    Ask: questions, replies, reader and writer training, examples;
-                          reader_model.py: the torch Ask reader [torch]
-                          (keras_reader.py: the old Keras one [train])
-  model.py                the categoriser in PyTorch (keras_model.py: the old Keras
-                          one [train], until TensorFlow is removed)
+                          model and training [torch]
+  ask/                    Ask: questions, replies, the reader's training, examples;
+                          reader_model.py: the torch Ask reader [torch]; writer.py:
+                          the frozen writer's vocabulary and encoding
+  model.py                the categoriser in PyTorch [torch]
   train/                  centralised and DP-SGD training: the PyTorch backend [torch]
-                          (keras_pipeline.py, keras_dp_sgd.py: the Keras one [train])
   export/                 size budget, plain weights format, the fine-tuning step;
-                          onnx.py: a torch model to rayo's weights via ONNX [torch];
-                          tflite.py, trainable.py: the Keras exports [train]
+                          onnx.py: a torch model to rayo's weights via ONNX [torch]
   federated/              client, update maths, simulation, Flower adapter
-  privacy/                privacy accounting (Opacus, in [torch] and [train]), budget
-                          ledger, the accountants compared, membership-inference audit,
-                          release gate
-  tracking.py             MLflow wrapper                    [train]
+  privacy/                privacy accounting (Opacus, in [torch]), budget ledger, the
+                          accountants compared, membership-inference audit, release gate
+  tracking.py             MLflow wrapper                    [torch]
   cli.py                  the `akili` command
-tests/                    pytest; test_tf_* need the [train] extra, most test_torch_* [torch]
+tests/                    pytest; most test_torch_* need the [torch] extra
 ```
 
 ## Testing
 
 ```sh
-tool/check          # everything: lint, types, all tests, smoke runs, the torch export without TensorFlow, then the core install
-tool/check --fast   # format, lint, types and the tests that skip TensorFlow
+tool/check          # everything: lint, types, all tests with the extras, smoke runs, then the core install
+tool/check --fast   # format, lint, types and the tests your environment can run
 tool/setup-hooks    # once: the pre-push hook runs tool/check
 ```
 
 Checks run on your machine, not on GitHub; GitHub only runs releases. See
 [CONTRIBUTING.md](CONTRIBUTING.md#checks-run-on-your-machine).
+
+## TFLite archive
+
+Until decision 0023, stage 5, the models were trained in Keras and exported to TFLite, which
+rayo-convert read into the `.weights` files the app runs. The last commit with that code is
+`9aed01f`, tagged `tflite-archive`. The release of that tag holds the TFLite files, so every
+`.weights` file the app shipped from TFLite traces back to one:
+
+| File | Model | Made at |
+| --- | --- | --- |
+| `ask-writer.tflite` (652,968 bytes, SHA-256 `3461c243…`) | the Ask writer the app still ships (`ask-writer.weights`, `e90687df…`) | `dfb9c24`, v0.2.0 |
+| `ask-reader.tflite` (271,904 bytes, `f6599bc4…`) | the Keras Ask reader v3 (`ask-reader.weights` `7f88fe29…`, shipped until v4) | `d811635` (#51) |
+| `reader.tflite` (199,264 bytes, `12ff080e…`) | the Keras message reader (never shipped) | `9aed01f` |
+| `categoriser.tflite`, `categoriser-train.tflite` (82,376 and 300,212 bytes) | the Keras categoriser, `configs/dp-sgd.yaml` (never shipped) | `9aed01f` |
+
+Each comes with its manifest and report; `ARCHIVE.json` gives every file's SHA-256, size,
+commit, config and TensorFlow version, and `SHA256SUMS` the checksums. To run the Keras code
+again, check out the tag and `uv sync --extra train`.
 
 ## Branches and releases
 

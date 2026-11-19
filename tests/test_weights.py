@@ -1,5 +1,4 @@
 import struct
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -11,7 +10,7 @@ def _weights() -> Weights:
     rng = np.random.default_rng(0)
     return Weights(
         model="test",
-        source_file="test.tflite",
+        source_file="test.onnx",
         source_sha256="0" * 64,
         source_size_bytes=123,
         layers=[{"name": "dense", "kind": "dense", "activation": "relu"}],
@@ -100,50 +99,41 @@ def test_graph_and_metadata_round_trip() -> None:
     assert read_weights(plain.to_bytes()).graph is None
 
 
-def _fake_conversion(
-    monkeypatch: pytest.MonkeyPatch, names: list[str], mode: str = "decode", heads: int = 4
-) -> list[object]:
-    """rayo-convert's convert replaced by one that gives these tensors and a graph with three
-    attention nodes; returns the options it was called with."""
+def _result(names: list[str]) -> object:
+    """A rayo-convert result with these tensors: int8 kernels, float32 others."""
     from rayo_convert import Result
     from rayo_convert.lower import Weight
 
-    from akili.export import rayo
-
-    seen: list[object] = []
-
-    def convert(blob: bytes, name: str, options: object) -> Result:
-        seen.append(options)
-        weights = [
-            Weight(
-                n, np.arange(6, dtype=np.int8).reshape(2, 3), np.array([0.5, 0.25], np.float32), 0
-            )
-            if n.endswith("kernel")
-            else Weight(n, np.ones(2, np.float32))
-            for n in names
-        ]
-        nodes = [{"op": "attention", "heads": heads, "causal": 1} for _ in range(3)]
-        return Result(b"", {"version": 1, "nodes": nodes}, weights, ["a note"], mode)
-
-    monkeypatch.setattr(rayo, "convert", convert)
-    return seen
+    weights = [
+        Weight(n, np.arange(6, dtype=np.int8).reshape(2, 3), np.array([0.5, 0.25], np.float32), 0)
+        if n.endswith("kernel")
+        else Weight(n, np.ones(2, np.float32))
+        for n in names
+    ]
+    return Result(b"", {"version": 1, "nodes": []}, weights, ["a note"], "sequence")
 
 
-def test_weights_from_rayo_convert(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    from akili.ask.reader_weights import LAYERS, RAYO_OPTIONS, read_tflite, required_tensors
+def test_weights_from_rayo_convert() -> None:
+    from rayo_convert import Options
+
+    from akili.ask.reader_weights import LAYERS, required_tensors
+    from akili.export.rayo import weights_from_result
 
     names = required_tensors()
     assert len(names) == 2 + 2 * (len(LAYERS) - 2)
-    seen = _fake_conversion(monkeypatch, [*names, "const"])
-    model = tmp_path / "ask-reader.tflite"
-    model.write_bytes(b"tflite")
-    w = read_tflite(model)
-    assert seen == [RAYO_OPTIONS]
-    assert RAYO_OPTIONS.split_inputs == {"question": [("tokens", 96), ("shapes", 96)]}
-    assert RAYO_OPTIONS.outputs == ["slots", "intent"]
+    options = Options(name="ask-reader")
+    w = weights_from_result(
+        b"onnx!!",
+        "ask-reader.onnx",
+        _result([*names, "const"]),  # type: ignore[arg-type]
+        options=options,
+        layers=LAYERS,
+        required=names,
+    )
     assert w.model == "ask-reader"
     assert w.layers == LAYERS
     assert w.graph is not None
+    assert w.source_file == "ask-reader.onnx"
     assert w.source_size_bytes == 6
     k = w.tensors["conv_1.kernel"]
     assert k.value.dtype == np.int8
@@ -152,27 +142,12 @@ def test_weights_from_rayo_convert(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     assert w.tensors["const"].scales is None
     back = read_weights(w.to_bytes())
     assert set(back.tensors) == set(w.tensors)
-    _fake_conversion(monkeypatch, names[1:])
     with pytest.raises(ValueError, match=r"rayo-convert gave no token_embedding\.table"):
-        read_tflite(model)
-
-
-def test_writer_needs_cached_attention(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    from akili.ask.writer_weights import RAYO_OPTIONS, _required, read_tflite
-
-    names = _required(3)
-    assert "attention_2.query.kernel" in names
-    assert "logits.bias" in names
-    assert len(names) == 2 + 3 * (4 + 4 * 2 + 4) + 2 + 2
-    model = tmp_path / "ask-writer.tflite"
-    model.write_bytes(b"tflite")
-    seen = _fake_conversion(monkeypatch, names)
-    assert read_tflite(model, 3, 4).model == "ask-writer"
-    assert seen == [RAYO_OPTIONS]
-    assert RAYO_OPTIONS.rename == {"output_0": "logits"}
-    _fake_conversion(monkeypatch, names, mode="sequence")
-    with pytest.raises(ValueError, match=r"did not give 3 cached attention layers.*a note"):
-        read_tflite(model, 3, 4)
-    _fake_conversion(monkeypatch, names, heads=2)
-    with pytest.raises(ValueError, match="of 4 heads"):
-        read_tflite(model, 3, 4)
+        weights_from_result(
+            b"onnx!!",
+            "ask-reader.onnx",
+            _result(names[1:]),  # type: ignore[arg-type]
+            options=options,
+            layers=LAYERS,
+            required=names,
+        )

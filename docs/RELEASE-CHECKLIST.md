@@ -56,6 +56,9 @@ Copy this list into the release issue and fill it in.
 - [ ] A model exported from PyTorch (the categoriser, the message reader, the Ask reader): its `.weights`
       file within the budget, and rayo's int8 file within the model's tolerance of the torch model, with the
       same labels (`parity` in its report).
+- [ ] Not the Ask writer: it is frozen as shipped (decision 0023) and is not released from this
+      repository again. Its file and the TFLite file it came from are recorded in the
+      `tflite-archive` release.
 - [ ] Model file signed (Ed25519) with the release key held outside this repository; the app
       verifies the signature before use.
 - [ ] App track: weights published under CC BY-SA 4.0 with the credit line, privacy report and

@@ -6,8 +6,8 @@ import pytest
 
 from akili.cli import main
 from akili.config import FeatureConfig
-from akili.export.manifest import write_model_manifest
-from akili.export.size import describe
+from akili.export.manifest import write_weights_manifest
+from akili.export.weights import Tensor, Weights
 from akili.features import FEATURE_SCHEMA_VERSION, fnv1a_32
 from akili.vectors import VECTOR_FILE, build_vectors, default_path, render
 
@@ -86,12 +86,26 @@ def test_cli_vectors_writes_and_checks(tmp_path: Path, capsys: pytest.CaptureFix
 
 
 def test_model_manifest_records_schema_and_hash(tmp_path: Path) -> None:
-    model = tmp_path / "categoriser.tflite"
-    model.write_bytes(b"not really a model")
-    path = write_model_manifest(describe(model), FeatureConfig())
+    import hashlib
+
+    import numpy as np
+
+    onnx = b"not really an onnx file"
+    blob = Weights(
+        model="categoriser",
+        source_file="categoriser.onnx",
+        source_sha256=hashlib.sha256(onnx).hexdigest(),
+        source_size_bytes=len(onnx),
+        layers=[],
+        tensors={"t": Tensor(np.zeros(2, np.float32))},
+    ).to_bytes()
+    model = tmp_path / "categoriser.weights"
+    model.write_bytes(blob)
+    path = write_weights_manifest(model, onnx, "categoriser.onnx", FeatureConfig())
     doc = json.loads(path.read_text(encoding="utf-8"))
     assert path.parent == tmp_path
     assert doc["feature_schema_version"] == FEATURE_SCHEMA_VERSION
-    assert doc["model_sha256"] == describe(model).sha256
+    assert doc["weights_sha256"] == hashlib.sha256(blob).hexdigest()
+    assert doc["source"]["sha256"] == hashlib.sha256(onnx).hexdigest()
     assert doc["input"] == {"name": "features", "dtype": "int32", "shape": [-1, 13]}
     assert len(doc["layout"]) == 13

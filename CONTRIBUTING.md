@@ -8,10 +8,10 @@ public issues.
 ## Setup
 
 ```sh
-uv sync                 # core only, fast (no PyTorch, so no privacy accounting)
-uv sync --extra train --extra fl   # with TensorFlow, MLflow, Opacus and Flower
+uv sync                            # core only, fast (no PyTorch, so no privacy accounting)
 uv sync --extra torch              # PyTorch (CPU), Opacus, onnx and MLflow: train and export
-                                   # the PyTorch models, and the privacy accountant
+                                   # the models, and the privacy accountant
+uv sync --extra torch --extra fl   # and Flower, as tool/check runs it
 ```
 
 ## Checks run on your machine
@@ -23,13 +23,13 @@ tool/setup-hooks
 ```
 
 The pre-push hook checks that the titles of the commits you push follow Conventional Commits
-(see below), then runs `tool/check`: ruff format and lint, mypy, all tests with the extras, the
-Keras smoke runs (`--keras`), then mypy, the torch tests and the PyTorch smoke training,
-DP-SGD, federated and quick-audit runs in an environment with the `[torch]` extra and no
-TensorFlow (`AKILI_CHECK_TORCH=0` leaves them out),
-and finally mypy and the tests on the core install alone (no PyTorch or Opacus), and
-`akili accountants --check` with the extras. `tool/check --fast` (format, lint, types and the tests that skip TensorFlow)
-is there for running by hand while you work. In an emergency, `git push --no-verify` skips the
+(see below), then runs `tool/check`: ruff format and lint, mypy, a check that TensorFlow is
+not installed, all tests with the `[torch]` and `[fl]` extras (the ones that run rayo's C
+library use rayo's sources at the pinned commit, fetched into `.cache/`), the smoke training,
+DP-SGD, federated and quick-audit runs, then mypy and the tests on the core install alone (no
+PyTorch or Opacus), and `akili accountants --check` with the extras. `tool/check --fast`
+(format, lint, types and the tests your environment can run) is there for running by hand
+while you work. In an emergency, `git push --no-verify` skips the
 hook; run `tool/check` before the pull request is merged.
 
 ## Rules specific to this repository
@@ -45,7 +45,10 @@ hook; run `tool/check` before the pull request is merged.
 - **Privacy thresholds** in `tracks.yaml` may be tightened freely; loosening one needs a reason
   in the PR and a maintainer's approval. The membership-inference limits stay marked
   `provisional: true` until issue #3 signs them off.
-- **Privacy code** (`privacy/`, `train/dp_sgd.py`): if you change an attack or the training
+- **No TensorFlow, Keras, TFLite or Google libraries** (decision 0023). Models train in
+  PyTorch and ship as rayo's weights through ONNX (`export/onnx.py`). The old Keras code is at
+  the `tflite-archive` tag; the frozen Ask writer is not retrained here.
+- **Privacy code** (`privacy/`, `train/dp_sgd.py`, `train/torch_dp_sgd.py`): if you change an attack or the training
   procedure, run the full audit pair (see [docs/PRIVACY-AUDIT.md](docs/PRIVACY-AUDIT.md)) and put
   the before and after tables in the PR.
 

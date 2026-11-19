@@ -154,5 +154,6 @@ generated message (2.9e-2), but where `p (1 - p)` is 0.24 rather than at most 0.
 generated message is below 0.7), the same move gives twice the difference. So the kind's
 tolerance is the fields' 2e-2 too, which bounds what int8 can do to an unsure kind.
 
-`akili reader --keras` still trains the Keras model and exports `reader.tflite` with the old
-manifest (`model_file`), until TensorFlow is removed (decision 0023, stage 5).
+The Keras model and its `reader.tflite`, with the old manifest (`model_file`), were removed with
+TensorFlow (decision 0023, stage 5); the code is at the `tflite-archive` tag, and a
+`reader.tflite` from it (the scores in the table above) is in that tag's release.

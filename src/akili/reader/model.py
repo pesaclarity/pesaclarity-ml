@@ -1,6 +1,6 @@
 """The message reader as a PyTorch module, and how it is presented to rayo (needs [torch]).
 
-The network the Keras reader had (``akili.reader.keras_train``), layer for layer and under the same
+The network the Keras reader had (at the ``tflite-archive`` tag), layer for layer and under the same
 names, so the weights file keeps its tensors (``conv_1.kernel``, ``token_embedding.table``),
 their layout and the ``layers`` list:
 

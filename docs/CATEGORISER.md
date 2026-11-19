@@ -5,13 +5,13 @@ The categoriser suggests a category for each transaction, on the phone. Its feat
 [README](../README.md#configs-and-tracks), [DP-SGD-REVIEW.md](DP-SGD-REVIEW.md) and
 [PRIVACY-AUDIT.md](PRIVACY-AUDIT.md). This page is the model, its file, its scores and its
 parity. Since decision 0023's stage 4 it trains in PyTorch and ships as rayo's int8
-`categoriser.weights`; `--keras` trains the Keras model it replaced, and writes its TFLite
-files, until TensorFlow is removed (stage 5).
+`categoriser.weights`. The Keras model it replaced, and its TFLite files, were removed with
+TensorFlow in stage 5 (the code is at the `tflite-archive` tag, the files in its release).
 
 ## The model and its file
 
-[`akili.model.Categoriser`](../src/akili/model.py), the Keras network
-([`akili.keras_model`](../src/akili/keras_model.py)) layer for layer under the same names:
+[`akili.model.Categoriser`](../src/akili/model.py), the Keras network (`akili.keras_model`, at
+the `tflite-archive` tag) layer for layer under the same names:
 
 | Layer | What | Default size |
 | --- | --- | --- |
@@ -144,5 +144,5 @@ boundary). The backend needs no change.
 - **PyTorch** (decision 0023, stage 4): the same network, layer names, features, labels, data,
   configs and seeds; the recipe above; shipped as rayo's int8 `categoriser.weights` with the
   ONNX source; fine-tuning by the written step instead of `categoriser-train.tflite`.
-- **Keras** (`--keras`): `categoriser.tflite` (dynamic-range int8) and
-  `categoriser-train.tflite`; removed with TensorFlow.
+- **Keras**: `categoriser.tflite` (dynamic-range int8) and `categoriser-train.tflite`; removed
+  with TensorFlow in stage 5 (a DP-SGD run of both is in the `tflite-archive` release).

@@ -267,8 +267,8 @@ v2's; in PyTorch it is 0.050 higher. The PyTorch reader has the same known misse
 
 ### The model and its file
 
-[`AskReader`](../src/akili/ask/reader_model.py) is the Keras network
-([`keras_reader.py`](../src/akili/ask/keras_reader.py)) as a `torch.nn` module, layer for
+[`AskReader`](../src/akili/ask/reader_model.py) is the Keras network (`keras_reader.py`, at the
+`tflite-archive` tag) as a `torch.nn` module, layer for
 layer and under the same names (`token_embedding`, `shape_embedding`, `conv_1` .. `conv_3`,
 `slot_hidden`, `slot_context`, `slot_span`, `slots`, `intent_hidden`, `intent`), 239,589
 parameters. [`fit`](../src/akili/ask/reader.py) trains it with the Keras trainer's recipe, data
@@ -342,8 +342,9 @@ file.
   reader's pooling sums in float32).
 - **v3 in PyTorch** (#60, decision 0023 stage 3): the same network, layer names,
   data, templates, folds and seeds, trained in PyTorch with label smoothing of 0.05 and
-  shipped as rayo-convert's int8 file; no TFLite file. `akili ask-reader --keras` trains the
-  Keras reader and writes its TFLite file until TensorFlow is removed (stage 5). Same input,
+  shipped as rayo-convert's int8 file; no TFLite file. The Keras reader and `--keras` were
+  removed with TensorFlow in stage 5 (the v3 `ask-reader.tflite` is in the `tflite-archive`
+  release). Same input,
   outputs, labels and `ask_schema_version`; the manifest names the ONNX source instead of a
   TFLite file.
 - **v3** (#51): 37 new templates (version 3) for v2's misses: charges on an account
@@ -364,6 +365,15 @@ file.
   "how often do I pay X" as out of scope and "how much did I pay X" as subscriptions.
 
 ## Ask writer
+
+The writer is **frozen as shipped** (pesaclarity/docs, decision 0023): `ask-writer.weights`
+(SHA-256 `e90687df…`, 591,860 bytes), read out of `ask-writer.tflite` (`3461c243…`, akili
+dfb9c24, v0.2.0), until Ask LM replaces it. Its Keras trainer went with TensorFlow in stage 5,
+so it is not retrained or changed here; the code and the TFLite file are at the
+`tflite-archive` tag and in its release. A fix it needs before Ask LM ships goes in the app's
+checks and fixed sentences. What follows stays the contract: the vocabulary
+([`akili.ask.writer`](../src/akili/ask/writer.py)), the fact grammar, the checker and the
+conformance cases.
 
 ### Vocabulary
 

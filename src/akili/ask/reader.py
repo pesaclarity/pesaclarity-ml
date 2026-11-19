@@ -20,8 +20,8 @@ nothing else, carries its label. The exported model is also scored on :mod:`akil
 The release path (pesaclarity/docs, decision 0023; needs the [torch] extra): :func:`fit` trains
 :class:`akili.ask.reader_model.AskReader`, ``torch.onnx`` exports it and rayo-convert quantises
 it to int8 (:func:`export_module`), and every score is of that ``ask-reader.weights`` file as
-rayo runs it (:func:`train_ask_reader`). The Keras trainer and its TFLite export it replaces
-are :mod:`akili.ask.keras_reader`, until TensorFlow is removed (stage 5).
+rayo runs it (:func:`train_ask_reader`). The Keras trainer and TFLite export it replaced
+were removed with TensorFlow (stage 5); they are at the ``tflite-archive`` tag.
 """
 
 from __future__ import annotations

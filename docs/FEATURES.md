@@ -219,10 +219,10 @@ over the person's latest `settings.max_examples` confirmations, waits until ther
 charging, and keeps the tuned tensors in its encrypted storage, tied to `weights_sha256`.
 Nothing leaves the phone. The `fine_tune` block is absent when `export.trainable` is off.
 
-The Keras categoriser (`akili train --keras`, until TensorFlow is removed) writes instead
+The Keras categoriser (removed with TensorFlow in decision 0023, stage 5) wrote instead
 `categoriser.tflite` with `model_file`, `model_sha256` and `model_size_bytes`, and a `trainable`
 block for `categoriser-train.tflite`, a copy with `train`, `infer`, `save` and `restore`
-signatures and hand-written gradients (`akili.export.trainable`).
+signatures and hand-written gradients. No manifest has those fields any more.
 
 The app must refuse a model when `feature_schema_version` is not one it implements, when
 `feature_config` or `input` differ from what its implementation produces, or when the SHA-256 of
