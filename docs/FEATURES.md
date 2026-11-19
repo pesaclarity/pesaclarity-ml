@@ -183,51 +183,50 @@ describes version 1. Any change that alters the output of `encode()` for any inp
 3. regenerate the vectors with `uv run akili vectors` (the file name carries the version), and
 4. be released to the app before or with any model trained on it.
 
-Every training run writes `model-manifest.json` next to `categoriser.tflite`:
+Every training run writes `model-manifest.json` next to `categoriser.weights`, the rayo int8
+file the app runs ([CATEGORISER.md](CATEGORISER.md#the-model-and-its-file)):
 
 ```json
 {
-  "model_file": "categoriser.tflite",
-  "model_sha256": "<hex>",
-  "model_size_bytes": 81234,
+  "weights_file": "categoriser.weights",
+  "weights_sha256": "<hex>",
+  "weights_size_bytes": 75776,
+  "weights_format_version": 1,
+  "source": {"file": "categoriser.onnx", "sha256": "<hex>", "size_bytes": 276510},
   "feature_schema_version": 1,
   "feature_config": {"max_tokens": 8, "hash_buckets": 4096},
   "input": {"name": "features", "dtype": "int32", "shape": [-1, 13]},
   "layout": ["token_0", "...", "token_7", "amount_bucket", "direction", "hour_bucket", "weekday", "month_phase"],
-  "trainable": {
-    "file": "categoriser-train.tflite",
-    "sha256": "<hex>",
-    "size_bytes": 300564,
-    "signatures": ["train", "infer", "save", "restore"],
-    "weights": {"w1": [36, 32], "b1": [32], "w2": [32, 27], "b2": [27]},
-    "fine_tune": {"learning_rate": 0.05, "epochs": 3, "batch_size": 16, "max_examples": 500, "min_examples": 10, "min_hours_between_runs": 24}
+  "rayo_inputs": {"features": {"dtype": "int32", "shape": [13]}},
+  "outputs": ["category"],
+  "fine_tune": {
+    "spec_version": 1,
+    "trains": ["hidden.kernel", "hidden.bias", "category.kernel", "category.bias"],
+    "input": "hidden",
+    "weights": {"hidden.kernel": [32, 36], "hidden.bias": [32], "category.kernel": [27, 32], "category.bias": [27]},
+    "settings": {"learning_rate": 0.05, "epochs": 3, "batch_size": 16, "max_examples": 500, "min_examples": 10, "min_hours_between_runs": 24}
   }
 }
 ```
 
 ### Fine-tuning on the phone
 
-`categoriser-train.tflite` is the same model with four signatures, built from TFLite builtin ops
-only (no Flex delegate):
+The token and context embeddings stay frozen; the two dense layers train with plain SGD by the
+step in [FINE-TUNING.md](FINE-TUNING.md), which the app implements and checks against
+`fine_tune_vectors.v1.json`. The app runs `settings.epochs` passes of `settings.batch_size`
+over the person's latest `settings.max_examples` confirmations, waits until there are
+`settings.min_examples`, runs at most once per `settings.min_hours_between_runs` and only while
+charging, and keeps the tuned tensors in its encrypted storage, tied to `weights_sha256`.
+Nothing leaves the phone. The `fine_tune` block is absent when `export.trainable` is off.
 
-| Signature | Inputs | Outputs |
-| --- | --- | --- |
-| `train` | `x` int32 `[n, width]`, `y` int32 `[n]` label indices, `lr` float32 | `loss` |
-| `infer` | `x` int32 `[n, width]` | `output` float32 `[n, classes]` |
-| `save` | none | `w1`, `b1`, `w2`, `b2` |
-| `restore` | `w1`, `b1`, `w2`, `b2` | `ok` |
-
-The token and context embeddings stay frozen; `train` updates the two dense layers with plain SGD
-using hand-written gradients, which match TensorFlow's to 1e-5 (`tests/test_tf_trainable.py`). The
-app runs `fine_tune.epochs` passes of `fine_tune.batch_size` over the person's latest
-`fine_tune.max_examples` confirmations, waits until there are `fine_tune.min_examples`, runs at
-most once per `fine_tune.min_hours_between_runs` and only while charging, keeps the
-result of `save` in its encrypted storage, and calls `restore` after loading. Nothing leaves the
-phone. The `trainable` block is absent when `export.trainable` is off.
+The Keras categoriser (`akili train --keras`, until TensorFlow is removed) writes instead
+`categoriser.tflite` with `model_file`, `model_sha256` and `model_size_bytes`, and a `trainable`
+block for `categoriser-train.tflite`, a copy with `train`, `infer`, `save` and `restore`
+signatures and hand-written gradients (`akili.export.trainable`).
 
 The app must refuse a model when `feature_schema_version` is not one it implements, when
 `feature_config` or `input` differ from what its implementation produces, or when the SHA-256 of
-the model file does not match `model_sha256`.
+the model file does not match `weights_sha256`.
 
 ## Test vectors
 

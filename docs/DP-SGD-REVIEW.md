@@ -1,8 +1,11 @@
 # DP-SGD review (issue #3)
 
-Review of the custom DP-SGD code against the privacy accountant's assumptions, the track
-thresholds and the state of maintained DP libraries. Reviewed on 2026-11-04 against TensorFlow
-2.21.0, Keras 3.15.1, dp-accounting 0.6.0 and Python 3.12.13.
+Review of the DP-SGD code against the privacy accountant's assumptions, the track thresholds
+and the state of maintained DP libraries. First reviewed on 2026-11-04 on the Keras code;
+**redone on 2026-11-19 on the PyTorch code and Opacus's accountant** (decision 0023, stage 4;
+[below](#2026-11-19-the-pytorch-loop-and-opacus)). The sections after that one are the original
+review of the Keras loop (`akili.train.keras_dp_sgd`, kept for `--keras` until TensorFlow is
+removed); their line numbers refer to it.
 
 Some terms used below:
 
@@ -16,7 +19,83 @@ Some terms used below:
 * **Poisson sampling**: each step, every example joins the batch independently with probability
   q. Batch sizes vary.
 
-## Summary
+## 2026-11-19: the PyTorch loop and Opacus
+
+Reviewed against PyTorch 2.15.0 (CPU), Opacus 1.6.0, dp-accounting 0.6.0 and Python 3.12.13.
+
+### The loop: the same algorithm, the same measured checks
+
+[`train/torch_dp_sgd.py`](../src/akili/train/torch_dp_sgd.py) is the Keras loop in torch. What
+the accountant assumes holds, and each check of the first review was measured again on it
+([`tests/test_torch_dp_sgd.py`](../tests/test_torch_dp_sgd.py)):
+
+| Check | How | Measured |
+| --- | --- | --- |
+| Per-person (or per-example) gradients, clipped over every weight together | `torch.func.vmap` of `grad` over the sampled people, each person's loss the mean over their examples; one L2 norm over all the weights' gradients, scale `min(1, C / norm)` | against gradients computed one at a time by ordinary backprop: within 1.6e-8 for C = 0.05 and C = 1.0 (per example and per person) |
+| Noise of std σ x C per coordinate, on the sum, divided by the expected batch q x n | `torch.normal` from a generator seeded per run; `(sum + noise) / (q n)` | std 0.99983 ± 0.0025 of σC over 25 seeds; the test uses q = 0.75 with a realised batch that differs from the expected one, so dividing by the realised size fails it |
+| Poisson sampling | `rng.random(n) < q` per step, for people or examples | 250 steps at q = 0.2 of 30 people: mean batch 6.06 (6 expected) |
+| An empty batch still takes a noise-only step | `noise_only` | read in the code |
+| Steps and q given to the accountant are those taken | counted in the loop; the pipeline refuses a mismatch | `test_dp_sgd_matches_what_the_accountant_is_told` |
+| Noise and sampling from OS entropy unless `dp.noise_seed` | `secrets.randbits(63)`, never returned or logged; the gate refuses seeded reports | `test_noise_comes_from_os_entropy_unless_seeded` |
+| No layer mixes examples | embeddings, a masked mean within each row, two dense layers, dropout (a fresh mask per person: `vmap(..., randomness="different")`); no batch norm | read in [`model.py`](../src/akili/model.py) |
+
+Opacus's own `PrivacyEngine` is not used for training: it clips per example, and the unit here
+is one person. Only its accountants are.
+
+Two things are new, both post-processing that costs no privacy:
+
+* **Weight averaging** (`dp.weight_average`, 0.99): the released weights are an exponential
+  moving average over the DP-SGD steps. Each step's weights are already a function of the noisy
+  gradients, so averaging them is post-processing; the accountant counts every step as before.
+  It smooths out the noise and lifts accuracy by about 0.9 points (docs/CATEGORISER.md).
+  `test_the_weight_average_changes_only_the_released_weights` checks the steps, sampling and
+  batches are those of a run without it.
+* Momentum, the learning rate and the clip are as before (SGD, momentum 0.9, constant rate).
+
+Still open from the first review, unchanged: the logged `val.accuracy` and `train.final_loss`
+are not private (low; keep them internal on real data), and the noise comes from a
+pseudo-random generator (torch's CPU generator, Mersenne Twister) rather than a secure one
+(low; Opacus's `secure_mode` needs `torchcsprng`, which is no longer maintained).
+
+### The accountant: Opacus against dp-accounting
+
+[`privacy/accounting.py`](../src/akili/privacy/accounting.py) now uses Opacus: `RDPAccountant`
+for the figure the gate checks, `PRVAccountant` for the tighter figure reported as
+`epsilon_pld` (`tight_accountant: opacus-prv`; PRV's upper bound, within 1e-3). The ledger
+recomputes every total from each entry's q, σ and steps with Opacus's RDP. The figures of both
+libraries for the same mechanisms are in
+[`accountants.v1.json`](../src/akili/resources/accountants.v1.json) (`akili accountants`;
+`akili accountants --check` in `tool/check` recomputes them): every DP config, the example
+below, a grid of 64 settings (q 0.001 to 0.1, σ 0.8 to 2, 100 and 1,000 steps, δ 1e-6 and
+1e-7), the ledger of the documented audit run, and the most steps each track's limits allow.
+
+**One change of method.** At an integer RDP order both libraries sum the same positive terms
+and agree to rounding. At a fractional order (1.75, 2.25, 2.5, 3.5, 4.5 among the orders signed
+off) Opacus sums Mironov et al.'s alternating series exactly, while dp-accounting bounds it by
+the sum of the terms' magnitudes, so with those orders Opacus's ε comes out lower whenever a
+fractional order is the best one: by up to 0.05% under the app limit (q 0.05, σ 0.8, 100 steps:
+7.740 against 7.744) and up to 4.9% far above it (q 0.1, σ 0.8, 1,000 steps: 46.3 against 48.7).
+Both are valid bounds in theory, but a figure below the one signed off would let the gate pass
+a run it refused before (one more step at q 0.001, σ 0.8: 545,810 against 545,809). So the gate
+uses Opacus with the **integer orders only** (2 to 63, 128, 256, 512). Then:
+
+| | dp-accounting (signed off) | Opacus, the gate's figure |
+| --- | --- | --- |
+| `dp-sgd`, `audit-dp-sgd` (q 0.05, σ 1.5, 160 steps, δ 1e-6) | RDP 2.666, PLD 2.420 | RDP **2.666**, PRV 2.421 |
+| `federated-app` (q 0.1, σ 1.0, 30 rounds, δ 1e-6) | 5.616, PLD 4.923 | **5.616**, PRV 4.924 |
+| `federated-commercial` (q 0.089, σ 1.5, 20 rounds, δ 1e-7) | 2.353, PLD 2.081 | **2.353**, PRV 2.083 |
+| The example below (q 0.0133, σ 1.1, 375 steps, δ 1e-6) | 1.830, PLD 1.522 | **1.830**, PRV 1.523 |
+| The audit run's ledger, 17 runs (1 training, 16 shadow) | 10.308 | **10.366** (+0.56%) |
+| Grid, 64 settings: Opacus RDP against dp-accounting RDP | | equal to +10.8%, never lower |
+| Grid: PRV against PLD | | +0.0008 to +0.0024 (PRV is an upper bound) |
+| Most steps within the track limits (each config's and grid point's q and σ, both tracks) | | never more; fewer where a fractional order was the best (`federated-app`'s q and σ at the app limit: 70 rounds against 77; it runs 30) |
+
+Every config's ε is unchanged to the sixth decimal, so nothing signed off moves except the
+audit run's ledger total, which now counts the shadow models' mechanisms at integer orders
+(10.37 against 10.31). The thresholds in `tracks.yaml` do not change. The code that computes the
+figures they are compared with does, so the owner re-signs them in #3 (decision 0023).
+
+## Summary (2026-11-04, the Keras loop)
 
 The core algorithm is right. The code does what the accountant assumes:
 
