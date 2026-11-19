@@ -8,35 +8,26 @@ license-files = ["LICENSE"]
 requires-python = ">=3.12,<3.13"
 authors = [{ name = "Pesa Clarity contributors" }]
 dependencies = [
-    # dp-accounting only records the old accountant's figures beside Opacus's
-    # (akili.privacy.reference); removed with TensorFlow (decision 0023, stage 5).
-    "dp-accounting>=0.6.0,<0.7",
     "numpy>=1.26,<3",
-    # opacus, the privacy accountant, is in the [torch] and [train] extras below: it needs
-    # torch, and the core install stays without it.
+    # opacus, the privacy accountant, is in the [torch] extra below: it needs torch, and the
+    # core install stays without it.
     "pydantic>=2.9,<3",
     "pyyaml>=6.0.2,<7",
     # rayo's model converter, pinned to a rayo commit: the plain weights' graph (docs/WEIGHTS.md).
-    # [tflite]: it reads the TFLite files the Keras models export (until they move to torch).
+    # Without its [tflite] extra: no model here exports TFLite since decision 0023, stage 5.
     # This commit is pesaclarity/rayo's feat/convert-onnx-int8 (int8 from float ONNX graphs);
     # the pin moves to rayo's main once that is merged.
-    "rayo-convert[tflite] @ git+https://github.com/pesaclarity/rayo@054c8311619f60b38fed07c8042cf9564e36126f#subdirectory=convert",
+    "rayo-convert @ git+https://github.com/pesaclarity/rayo@054c8311619f60b38fed07c8042cf9564e36126f#subdirectory=convert",
 ]
 
 [project.optional-dependencies]
-train = [
-    "tensorflow>=2.18,<2.22",
-    "mlflow>=3.1,<4",
-    # The privacy accountant, for the Keras DP-SGD runs' budgets (as in [torch] below).
-    "opacus>=1.6,<1.7",
-]
 fl = [
     "flwr>=1.20,<2",
 ]
-# PyTorch on CPU, onnx, MLflow and Opacus: training and exporting the models that have
-# moved (decision 0023, akili.export.onnx), and the privacy accountant (Meta, Apache-2.0):
-# RDP for the gate, PRV for the tighter figure (decision 0023). Opacus needs torch, which
-# comes from PyTorch's CPU index (tool.uv.sources below). No TensorFlow.
+# PyTorch on CPU, onnx, MLflow and Opacus: training and exporting every model
+# (decision 0023, akili.export.onnx), and the privacy accountant (Meta, Apache-2.0): RDP for
+# the gate, PRV for the tighter figure. Opacus needs torch, which comes from PyTorch's CPU
+# index (tool.uv.sources below). No TensorFlow (removed in stage 5).
 torch = [
     "torch>=2.6,<2.16",
     "opacus>=1.6,<1.7",
@@ -98,31 +89,21 @@ plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
 module = [
-    "tensorflow.*",
-    "keras.*",
     "flwr.*",
     "mlflow.*",
-    "dp_accounting.*",
     "torch.*",
     "onnx.*",
     "opacus.*",
 ]
 ignore_missing_imports = true
 
-[[tool.mypy.overrides]]
-# tf.function is untyped; these modules wrap it deliberately.
-module = ["akili.train.keras_dp_sgd", "akili.federated.keras_trainer"]
-disallow_untyped_decorators = false
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
 markers = [
-    "tf: needs the [train] extra (TensorFlow)",
     "fl: needs the [fl] extra (Flower)",
     "torch: needs the [torch] extra (PyTorch, Opacus, onnx and MLflow)",
 ]
 filterwarnings = [
-    "ignore::DeprecationWarning:tensorflow.*",
     "ignore::DeprecationWarning:mlflow.*",
 ]

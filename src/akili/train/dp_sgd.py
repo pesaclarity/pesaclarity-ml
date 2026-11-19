@@ -1,6 +1,5 @@
-"""DP-SGD's bookkeeping, shared by the PyTorch loop (:mod:`akili.train.torch_dp_sgd`) and the
-Keras one kept for ``--keras`` (:mod:`akili.train.keras_dp_sgd`): what a run reports, its steps
-and how each sampled person's examples are picked.
+"""DP-SGD's bookkeeping for the PyTorch loop (:mod:`akili.train.torch_dp_sgd`): what a run
+reports, its steps and how each sampled person's examples are picked.
 
 With ``unit: user`` (the default) each step samples people, not transactions: every sampled
 person's examples give one gradient (the mean over their examples), which is clipped to the

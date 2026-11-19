@@ -1,8 +1,9 @@
 """The Ask reader as a PyTorch module, and how it is presented to rayo (needs [torch]).
 
-The network the Keras Ask reader had (:mod:`akili.ask.keras_reader`), layer for layer and under
-the same names, so the weights file keeps its tensors (``conv_1.kernel``,
-``token_embedding.table``), their layout and the ``layers`` list the app's Dart reader checks:
+The network the Keras Ask reader had (removed in stage 5; at the ``tflite-archive`` tag),
+layer for layer and under the same names, so the weights file keeps its tensors
+(``conv_1.kernel``, ``token_embedding.table``), their layout and the ``layers`` list the app's
+Dart reader checks:
 
 - ``token_embedding`` (4096 x 24) and ``shape_embedding`` (12 x 8), concatenated, with spatial
   dropout (whole channels) in training;

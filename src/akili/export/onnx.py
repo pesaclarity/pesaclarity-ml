@@ -12,9 +12,9 @@ The path every model takes once it moves to PyTorch (pesaclarity/docs, decision 
 2. rayo-convert reads the ONNX graph (rayo's docs/CONVERTING.md), maps its ops to rayo's and,
    with ``weights="int8"``, quantises the weights itself: symmetric int8 kernels (one scale per
    output) and embedding tables (one scale), the activations quantised on the fly by rayo's
-   kernels, as for the TFLite dynamic-range files the app runs today.
+   kernels, as the TFLite dynamic-range files the app first ran were.
 3. :func:`weights_of_module` gives :class:`akili.export.weights.Weights`, the same PCWT file as
-   the TFLite path: tensors named after the module's layers (``conv_1.kernel``,
+   the old TFLite path gave: tensors named after the module's layers (``conv_1.kernel``,
    ``slot_hidden.bias``, ``token_embedding.table``, ``ln.gamma``), so a torch module whose
    layers keep the Keras names keeps the file's layout and the names the app reads.
 

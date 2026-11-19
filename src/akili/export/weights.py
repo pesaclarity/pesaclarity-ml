@@ -1,4 +1,4 @@
-"""Plain weights: a model's tensors in a small file any language can read without TFLite.
+"""Plain weights: a model's tensors in a small file any language can read, with rayo's graph.
 
 The app runs small models in its own code instead of a native runtime, and reads their
 weights from this file. The format is specified in [docs/WEIGHTS.md](../../../docs/WEIGHTS.md):

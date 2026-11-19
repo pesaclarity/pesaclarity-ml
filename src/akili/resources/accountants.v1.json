@@ -1,5 +1,5 @@
 {
-  "note": "Privacy budgets of the same mechanisms from dp-accounting (the figures signed off in pesaclarity-ml#3) and from Opacus (decision 0023, stage 4). Regenerate with `akili accountants`.",
+  "note": "Privacy budgets of the same mechanisms from Opacus (decision 0023, stage 4), beside dp-accounting's, the figures signed off in pesaclarity-ml#3. dp-accounting was removed in stage 5: its columns are the record from dp-accounting 0.6.0 (tag tflite-archive) and are not recomputed. Regenerate Opacus's with `akili accountants`.",
   "versions": {
     "opacus": "1.6.0",
     "dp-accounting": "0.6.0"

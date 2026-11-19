@@ -1,8 +1,9 @@
 """The categoriser as a PyTorch module, and how it is presented to rayo.
 
-The network the Keras categoriser had (:mod:`akili.keras_model`), layer for layer and under the
-same names, so the weights keep their names (``token_embedding.table``, ``hidden.kernel``), the
-federated protocol its arrays and the release its figures:
+The network the Keras categoriser had (removed in decision 0023, stage 5; at the
+``tflite-archive`` tag), layer for layer and under the same names, so the weights keep their
+names (``token_embedding.table``, ``hidden.kernel``), the federated protocol its arrays and the
+release its figures:
 
 - ``token_embedding``: the payee's hashed tokens (``hash_buckets`` x ``token_embedding_dim``),
   averaged over the tokens that are not padding (id 0);

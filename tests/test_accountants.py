@@ -1,8 +1,8 @@
-"""dp-accounting against Opacus (akili.privacy.compare, accountants.v1.json): the committed
-figures are what the accountants give, and Opacus's figure, which the gate checks, is never
-below the one signed off in pesaclarity-ml#3, is the same at every config, and admits no more
-steps at the track limits. dp-accounting's own columns are recomputed while it is installed
-(until stage 5); after that the file is their record."""
+"""Opacus against the dp-accounting figures signed off in pesaclarity-ml#3 (akili.privacy.compare,
+accountants.v1.json): the committed Opacus figures are what Opacus gives, and its figure, which
+the gate checks, is never below the signed-off one, is the same at every config, and admits no
+more steps at the track limits. dp-accounting was removed in stage 5: the file is the record of
+its columns, kept as they were signed off."""
 
 from __future__ import annotations
 
@@ -51,8 +51,8 @@ def test_the_file_covers_every_dp_config() -> None:
 @pytest.mark.torch
 @needs_opacus
 def test_opacus_gives_the_committed_figures() -> None:
-    """The configs, the review's example and the ledgers, recomputed (dp-accounting's too while
-    it is installed): the grid is checked by `akili accountants --check`."""
+    """The configs, the review's example and the ledgers, recomputed, with the signed-off columns
+    kept as they are: the grid is checked by `akili accountants --check`."""
     keep = {c["id"] for c in DOC["cases"] if not c["id"].startswith("grid:")}
     committed = _subset(keep)
     fresh = compare.build(None, [], committed)
@@ -98,15 +98,49 @@ def test_the_gate_uses_the_integer_orders() -> None:
     assert composed_epsilon(mech, c["delta"]) >= c["dp_accounting"]["rdp"] - ROUNDING
 
 
+def test_every_signed_off_figure_is_kept() -> None:
+    """The record has a dp-accounting column for every case, ledger and limit it was signed
+    off with: none was dropped when dp-accounting was removed."""
+    assert DOC["versions"]["dp-accounting"] == "0.6.0"
+    assert all({"rdp", "pld"} <= set(c["dp_accounting"]) for c in DOC["cases"])
+    assert all("rdp" in g["dp_accounting"] for g in DOC["ledgers"])
+    assert all("dp_accounting_max_steps" in x for x in DOC["limits"])
+
+
 @pytest.mark.torch
 @needs_opacus
-@pytest.mark.skipif(not has_module("dp_accounting"), reason="dp-accounting is not installed")
-def test_dp_accounting_gives_its_committed_figures() -> None:
-    """Some of the grid, the slowest cases left to `akili accountants --check`."""
-    keep = {c["id"] for c in DOC["cases"] if c["id"].endswith("steps=100:delta=1e-06")}
-    committed = {**_subset(keep), "ledgers": []}
-    fresh = compare.build(None, [], committed)
-    assert compare.mismatches({"cases": committed["cases"]}, {"cases": fresh["cases"]}) == []
+def test_a_new_case_has_no_signed_off_column() -> None:
+    """A case the record does not hold gets Opacus's figures only; the comparison leaves it out."""
+    case = {k: v for k, v in DOC["cases"][0].items() if k != "dp_accounting"}
+    previous = {**DOC, "cases": [case], "ledgers": [], "limits": []}
+    fresh = compare.build(None, [], previous)
+    assert "dp_accounting" not in fresh["cases"][0]
+    assert set(fresh["cases"][0]["opacus"]) == {"rdp", "rdp_signed_off_orders", "prv"}
+    assert compare.mismatches({"cases": [case]}, {"cases": fresh["cases"]}) == []
+    assert all("dp_accounting_max_steps" not in x for x in fresh["limits"])
+    assert compare.differences({**fresh, "cases": DOC["cases"]})["limits_never_more_steps"]
+
+
+@pytest.mark.torch
+@needs_opacus
+def test_a_changed_mechanism_keeps_no_signed_off_figure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A config whose settings change keeps its id; the figure signed off for the old settings
+    is not carried over to the new ones."""
+    case = next(c for c in DOC["cases"] if c["id"] == "config:dp-sgd")
+    plain = {k: v for k, v in case.items() if k not in ("dp_accounting", "opacus")}
+    previous = {**DOC, "ledgers": []}
+
+    def build(c: dict[str, object]) -> dict[str, object]:
+        monkeypatch.setattr(compare, "_cases", lambda _configs: [c])
+        return compare.build(CONFIG_DIR, [], previous)
+
+    kept = build(plain)
+    assert kept["cases"][0]["dp_accounting"] == case["dp_accounting"]
+    moved = build({**plain, "steps": case["steps"] + 1})
+    assert "dp_accounting" not in moved["cases"][0]
+    other = build({**plain, "noise_multiplier": case["noise_multiplier"] + 0.1})
+    assert "dp_accounting" not in other["cases"][0]
+    assert all("dp_accounting_max_steps" not in x for x in other["limits"])
 
 
 @pytest.mark.torch

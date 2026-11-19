@@ -11,8 +11,8 @@ as rayo runs it. Evaluation holds each sentence layout out of training in turn (
 :func:`evaluate_unseen_layouts`) and scores whole fields: a field counts as read only when
 every token of it, and nothing else, carries its label.
 
-The Keras reader this replaces stays in :mod:`akili.reader.keras_train` until TensorFlow is
-removed (stage 5).
+The Keras reader this replaced was removed with TensorFlow (decision 0023, stage 5); its code
+and ``reader.tflite`` are at the ``tflite-archive`` tag and its release.
 """
 
 from __future__ import annotations

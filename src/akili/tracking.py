@@ -1,4 +1,4 @@
-"""MLflow tracking (needs the [torch] or [train] extra). Defaults to local files under ./mlruns."""
+"""MLflow tracking (needs the [torch] extra). Defaults to local files under ./mlruns."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ class Tracker:
     def __enter__(self) -> Self:
         if not self._cfg.enabled:
             return self
-        mlflow = require("mlflow", "train")
+        mlflow = require("mlflow", "torch")
         if self._cfg.uri.startswith("sqlite:///"):
             Path(self._cfg.uri.removeprefix("sqlite:///")).parent.mkdir(parents=True, exist_ok=True)
         mlflow.set_tracking_uri(self._cfg.uri)

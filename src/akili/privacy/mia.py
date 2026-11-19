@@ -1,14 +1,14 @@
 """Run the membership-inference audit against a trained categoriser.
 
 The shadow models are trained, and every model scored, by the categoriser's framework (a
-:class:`~akili.train.backend.Backend`: PyTorch, or Keras with ``--keras``).
+:class:`~akili.train.backend.Backend`, the PyTorch one).
 
 Setup, following Carlini et al. 2022 ("Membership Inference Attacks From First Principles"):
 
 1. **Candidates.** Up to ``audit.max_candidates`` held-out validation examples (non-members) and
    as many random training examples (members).
-2. **Target scores.** The target model, by default the file that ships (PyTorch: the rayo int8
-   ``categoriser.weights``; Keras: its TFLite file), gives each candidate the probability of
+2. **Target scores.** The target model, by default the file that ships (the rayo int8
+   ``categoriser.weights``), gives each candidate the probability of
    its true label.
 3. **Shadow models.** ``audit.shadow_models`` models are trained with the target's exact
    procedure (same config, plain or DP-SGD) on as many examples as the target saw: each

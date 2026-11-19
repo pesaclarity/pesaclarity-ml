@@ -11,10 +11,12 @@ Four models have one:
   reader (`reader.weights`, about 188 KB, run by rayo), trained in PyTorch and exported through
   ONNX ([below](#from-a-pytorch-model)). They have no TFLite file: the `.weights` file is what
   is scored, budgeted and listed in the manifest;
-- the Ask writer (`ask-writer.weights`, about 592 KB, run by rayo), frozen as shipped
-  (decision 0023): read out of its Keras model's `ask-writer.tflite`
-  ([`akili.ask.writer_weights`](../src/akili/ask/writer_weights.py)), so its weights are byte
-  for byte the int8 and float32 values in it, and that TFLite file stays its reference.
+- the Ask writer (`ask-writer.weights`, 591,860 bytes, run by rayo), frozen as shipped
+  (decision 0023): read out of its Keras model's `ask-writer.tflite` by rayo-convert, so its
+  weights are byte for byte the int8 and float32 values in it. The Keras code and the step
+  that read it out were removed with TensorFlow (decision 0023, stage 5); they are at the
+  `tflite-archive` tag, and the TFLite file is in that tag's release (see the
+  [README](../README.md#tflite-archive)).
 
 ## Layout
 
@@ -37,7 +39,7 @@ magic, version or sizes do not fit, rather than guessing.
 {
   "format_version": 1,
   "model": "ask-reader",
-  "source": {"file": "ask-reader.tflite", "sha256": "f665…", "size_bytes": 271904},
+  "source": {"file": "ask-reader.onnx", "sha256": "cc2cc4d3…", "size_bytes": 964440},
   "layers": [
     {"name": "token_embedding", "kind": "embedding"},
     {"name": "conv_3", "kind": "conv1d", "size": 3, "dilation": 3, "activation": "relu"},
@@ -90,12 +92,12 @@ Dart reader and rayo read one file.
 
 The graph is written by **rayo-convert**, rayo's converter
 ([docs/CONVERTING.md](https://github.com/pesaclarity/rayo/blob/main/docs/CONVERTING.md)), from the
-same TFLite file the tensors come from ([`akili.export.rayo`](../src/akili/export/rayo.py)): it
-maps the TFLite graph's ops to rayo's, fuses what rayo runs as one op, and gives the tensors as
-they are in the file, under the Keras layers' names. It is a dependency pinned to a rayo commit
-(pyproject.toml), so the same TFLite file always gives the same bytes; to move to a newer rayo,
-change the commit there and run `uv lock`. Nothing here wires a graph by hand, and exporting the
-weights needs no TensorFlow.
+same ONNX file the tensors come from ([`akili.export.rayo`](../src/akili/export/rayo.py),
+[below](#from-a-pytorch-model)); the frozen writer's was written from its TFLite file the same
+way. It maps the graph's ops to rayo's, fuses what rayo runs as one op, and gives the tensors
+under the layers' names. It is a dependency pinned to a rayo commit (pyproject.toml), so the
+same model file always gives the same bytes; to move to a newer rayo, change the commit there
+and run `uv lock`. Nothing here wires a graph by hand.
 
 ```json
 "graph": {
@@ -115,21 +117,22 @@ weights needs no TensorFlow.
 }
 ```
 
-`input_quantization` names how TFLite's hybrid kernels quantise the layer's input, as described
+`input_quantization` names how rayo's hybrid kernels (as TFLite's did) quantise the layer's input, as described
 below: `rows` (each row) or `tensor_phases` (the whole input, each dilation phase alone).
 `graph.version` is rayo's, separate from this file's version.
 
-How each model is presented to rayo is said once, in its module's `RAYO_OPTIONS`: the reader's
-one input `[1, 192]` as two, `tokens` and `shapes` (token ids, then shape ids), and its slots
-before its intent ([`reader_weights`](../src/akili/ask/reader_weights.py)); the writer's
-output named `logits` ([`writer_weights`](../src/akili/ask/writer_weights.py)). The reader's
+How each model is presented to rayo is said once, in its module's `RAYO_OPTIONS`: the Ask
+reader's two inputs, `tokens` and `shapes` (token ids, then shape ids), and its slots before
+its intent ([`reader_model`](../src/akili/ask/reader_model.py)); the writer's output was named
+`logits`. The Ask reader's
 padding mask and pooling stay as the model computes them (`compare`, `mul`, `reduce`, `div`,
 `maximum`), which adds three float32 scalars to its tensors (`const`, `const_2`, `const_3`:
 the model's 1, 1e4 and 1); every layer's tensors are as before.
 
 ## The manifest
 
-The model's manifest carries the file beside the TFLite fields, which stay for provenance:
+The model's manifest carries the file (the writer's beside its TFLite fields, which stay for
+provenance):
 
 ```json
 "weights_file": "ask-reader.weights",
@@ -141,15 +144,16 @@ The model's manifest carries the file beside the TFLite fields, which stay for p
 The app checks the size and SHA-256 before it reads the weights, and uses its rules instead of
 the model when they do not match or the version is one it does not read.
 
-A model with no TFLite file (the categoriser, the message reader, the Ask reader) has only these fields for its
-file, with `source` (the ONNX file's name, SHA-256 and size) in place of the TFLite fields, and
+A model exported from PyTorch (the categoriser, the message reader, the Ask reader) has only these
+fields for its file, with `source` (the ONNX file's name, SHA-256 and size) in place of the
+TFLite fields, and
 its size budget is on the `.weights` file ([CATEGORISER.md](CATEGORISER.md#the-model-and-its-file),
 [READER.md](READER.md#manifest), [ASK.md](ASK.md#the-model-and-its-file)).
 
 ## The Ask reader on these weights
 
-Its network is [`AskReader`](../src/akili/ask/reader_model.py) (the Keras
-[`build_ask_reader`](../src/akili/ask/keras_reader.py) before it, layer for layer):
+Its network is [`AskReader`](../src/akili/ask/reader_model.py) (the Keras `build_ask_reader`
+before it, layer for layer, at the `tflite-archive` tag):
 embeddings, three residual convolutions (the third dilated), a slot head (dense, two residual
 convolutions, dense) and an intent head on masked max and mean pooling. The model is
 dynamic-range quantised: int8 weights, float32 everything else. A program must run it the way
@@ -168,7 +172,7 @@ probabilities are close, not bit-exact.
 
 ## The Ask writer on these weights
 
-Its network is [`build_writer`](../src/akili/ask/writer.py): token and position embeddings and
+Its network was `build_writer` (Keras, at the `tflite-archive` tag): token and position embeddings and
 three pre-norm transformer blocks (layer norm, causal self-attention with four heads, layer norm,
 a GELU feed-forward), a final layer norm and the logits. Its dense layers are int8 like the
 reader's and run the same way (each row of the input quantised on the fly); the attention, the
@@ -180,32 +184,30 @@ Its graph decodes word by word: rayo-convert recognises the TFLite graph's three
 self-attention blocks and rewrites them for a key/value cache, so each run takes the new tokens
 at positions `P` .. `P+T-1`, writes every layer's keys and values into a cache (graph states)
 and gives the logits after the last token; the final layer norm and the logits run on that one
-position. `read_tflite` checks the conversion did this (three cached, causal attention layers
-of four heads) and fails otherwise, with rayo-convert's notes. Its `symbols` are `T` (at most
-64) and `P` (at most 63), and its `plan` is `P = 0`, since `P + T` is at most 64.
-[`forward`](../src/akili/ask/writer_weights.py) is the reference in NumPy. On the released
+position. The step that read it out checked the conversion did this (three cached, causal
+attention layers of four heads). Its `symbols` are `T` (at most 64) and `P` (at most 63), and
+its `plan` is `P = 0`, since `P + T` is at most 64. On the released
 writer, rayo's decodes of the app's 265 requests are TFLite's, token for token; the converted
 file's logits are bit for bit those of the graph this repository used to write by hand, at all
 2243 steps of the recorded replies, and the reader's outputs on the 30 recorded questions too.
 
-`akili ask-writer-weights --model path/to/ask-writer.tflite` writes `ask-writer.weights` beside
-it (or into `--out`) and adds the weights' fields to its manifest when that manifest is the
-model's.
+The writer is frozen (decision 0023): its `.weights` file is not made again here.
+`akili ask-writer-weights`, which read it out of `ask-writer.tflite`, and its NumPy reference
+went with the Keras code in stage 5 (both at the `tflite-archive` tag). rayo-convert has
+changed its graph since, so converting the archived TFLite file at today's pin gives other
+bytes than the shipped `e90687df…`; the app's fixtures and rayo's own tests
+(`tests/ask/ask-writer.tflite`) keep checking the shipped file.
 
 ## Exporting
 
-`akili ask-reader` writes the weights, the ONNX file and the manifest with every export
-([below](#from-a-pytorch-model)). For a TFLite file of the Keras reader (`akili ask-reader
---keras`, until TensorFlow is removed), `akili ask-reader-weights --model
-path/to/ask-reader.tflite` writes `ask-reader.weights` beside it (or into `--out`) and, when
-the manifest there is that model's, adds the fields to it. The same TFLite file always gives
-the same bytes.
+`akili ask-reader`, `akili reader` and `akili train` write the weights, the ONNX file and the
+manifest with every export ([below](#from-a-pytorch-model)).
 
 ## From a PyTorch model
 
-The models move to PyTorch one at a time (pesaclarity/docs, decision 0023); each exports through
+Every model here is PyTorch (pesaclarity/docs, decision 0023); each exports through
 [`akili.export.onnx`](../src/akili/export/onnx.py), with the `[torch]` extra (PyTorch's CPU
-wheels and `onnx`, no TensorFlow):
+wheels and `onnx`):
 
 1. `to_onnx` exports the `torch.nn.Module` with example inputs through `torch.onnx`'s
    TorchScript-based exporter at opset 17 (`OPSET`; rayo-convert reads 13 or later): the
@@ -215,7 +217,7 @@ wheels and `onnx`, no TensorFlow):
    `<layer>.kernel` (`fields.kernel`, Keras' `[in, out]` layout), so every initializer in the
    ONNX file is named after its layer. The converted weights are the same either way. The same
    module, inputs and torch version give the same bytes.
-2. rayo-convert converts the ONNX file as it converts a TFLite one. With `weights="int8"`
+2. rayo-convert converts the ONNX file. With `weights="int8"`
    (rayo's `--weights int8`) it quantises the weights itself, in the int8 above: dense and
    convolution kernels symmetric with one scale per output (axis 0), embedding tables with one
    scale, weights of fewer than 1024 values left float32 (TFLite's rule), and the layers'
@@ -265,5 +267,6 @@ float32, plus one float32 scalar `const` (the masked mean's floor of 1). The DP-
 its token table widens that table's one scale, so it is held to its own tolerance
 ([CATEGORISER.md](CATEGORISER.md#parity)).
 
-The TFLite path above stays as it is for the frozen Ask writer.
+The TFLite path is gone (stage 5); the frozen Ask writer's file was made by it and is not
+made again.
 
