@@ -1,10 +1,11 @@
 # pesaclarity-ml (akili)
 
 Akili is the machine learning side of Pesa Clarity, the free, ad-free app for Android and iPhone that turns M-Pesa
-and bank SMS into a daily plan. It holds the small models that run on the phone (Keras and TFLite, moving to PyTorch and rayo): the
+and bank SMS into a daily plan. It holds the small models that run on the phone (trained in PyTorch and shipped as rayo's
+weights; the frozen Ask writer is still Keras and TFLite): the
 transaction categoriser, the message reader, and Ask's question reader and reply writer. Around
 them sit a synthetic data generator, centralised and DP-SGD training, the client side of
-federated learning, TFLite export with a size budget, MLflow tracking, and the privacy release gate
+federated learning, export with a size budget, MLflow tracking, and the privacy release gate
 that every model must pass before it leaves the server. The federated aggregator lives in
 [pesaclarity-backend](https://github.com/pesaclarity/pesaclarity-backend).
 
@@ -21,19 +22,23 @@ uv sync                                   # core: data, configs, features, priva
 uv run pytest                             # core tests; TensorFlow tests skip
 uv run akili synth --out /tmp/tx.jsonl    # write synthetic transactions
 uv run akili vectors                      # regenerate the feature test vectors for the app
+uv run akili fine-tune-vectors            # regenerate the app's fine-tuning vectors
 uv run akili epsilon --config configs/dp-sgd.yaml
+uv run akili accountants --check          # dp-accounting's and Opacus's budgets side by side
 uv run akili ledger                       # what every DP run so far has spent, per dataset
 
-uv sync --extra train --extra fl          # add TensorFlow, MLflow and Flower
-uv sync --extra torch                     # PyTorch (CPU) and onnx: the message reader and the Ask reader, and the export path models move to
+uv sync --extra torch                     # onnx and MLflow: train and export the PyTorch models
 uv run akili train --config configs/smoke.yaml
 uv run akili train --config configs/dp-sgd.yaml
 uv run akili simulate --config configs/federated-smoke.yaml
 uv run akili audit --quick --config configs/audit-no-dp.yaml --config configs/audit-dp-sgd.yaml
+
+uv sync --extra train --extra fl          # TensorFlow, MLflow and Flower: the Keras models
+uv run akili train --keras --config configs/smoke.yaml   # the old Keras categoriser, until TensorFlow goes
 ```
 
-Runs write the TFLite model, the trainable copy for fine-tuning on the phone
-(`categoriser-train.tflite`), `model-manifest.json`, `labels.json`, `privacy-report.json`,
+Runs write rayo's int8 `categoriser.weights`, the ONNX file it came from,
+`model-manifest.json`, `export-report.json`, `labels.json`, `privacy-report.json`,
 `privacy-budget.json` (what every run on the same data has spent together) and, when audited,
 `audit-report.json` to `artefacts/<name>/`. Every DP run, audit shadow models included, is added
 to the budget ledger `artefacts/privacy-ledger.jsonl`. Runs
@@ -42,13 +47,17 @@ sqlite:///mlruns/mlflow.db` to browse). Both folders are git-ignored.
 
 ## The model
 
-Input is one int32 vector per transaction: up to 8 hashed payee tokens plus amount bucket,
+The categoriser ([docs/CATEGORISER.md](docs/CATEGORISER.md)). Input is one int32 vector per transaction: up to 8 hashed payee tokens plus amount bucket,
 direction, hour bucket, weekday and month phase (start, middle, payday end). Output is a softmax
 over the default Kenyan category set in
 [`src/akili/resources/categories.yaml`](src/akili/resources/categories.yaml) (version 3: income
 splits into salary, business and freelance, money received, support from family, allowance and
-bursary, and gifts; the app's default categories mirror it). About 70k
-parameters; the quantised TFLite file is about 80 KB, against a 512 KB budget in the configs.
+bursary, and gifts; the app's default categories mirror it). 67,731 parameters, trained in
+PyTorch and shipped as rayo's int8 `categoriser.weights` (75,776 bytes, against a 512 KB budget
+in the configs; no TFLite file). The app fine-tunes its two dense layers on the person's own
+choices by the step in [docs/FINE-TUNING.md](docs/FINE-TUNING.md). On the configs' held-out
+synthetic people it scores level with or above the Keras model it replaced on every config
+(DP-SGD per person: 0.932 against 0.923, the mean over ten noise seeds).
 The app must reproduce [`features.py`](src/akili/features.py) exactly in Dart; it uses FNV-1a
 hashing so no payee vocabulary ships with the model. [docs/FEATURES.md](docs/FEATURES.md) is the
 language-neutral spec, and
@@ -153,9 +162,11 @@ The two training tracks from the spec, app (on by default) and commercial (separ
 defined with their consent keys and release thresholds in
 [`src/akili/resources/tracks.yaml`](src/akili/resources/tracks.yaml).
 
-DP-SGD is implemented in [`train/dp_sgd.py`](src/akili/train/dp_sgd.py) rather than with
-tensorflow-privacy, whose last release supports neither Python 3.12 nor Keras 3. Budgets are
-computed with Google's `dp-accounting` (the accountant tensorflow-privacy uses).
+DP-SGD is implemented in [`train/torch_dp_sgd.py`](src/akili/train/torch_dp_sgd.py) with
+`torch.func` per-person gradients (Opacus's own engine clips per example). Budgets are computed
+with [Opacus](https://opacus.ai)'s accountants: RDP for the gate, PRV for the tighter figure
+(decision 0023; [DP-SGD-REVIEW.md](docs/DP-SGD-REVIEW.md#2026-11-19-the-pytorch-loop-and-opacus)
+compares them with Google's `dp-accounting`, which computed the figures before).
 
 The privacy unit is one person, as in federated training: each step samples people, and each
 sampled person's examples give one clipped gradient, so the budget covers everything they
@@ -178,14 +189,17 @@ and offline, with shadow models trained the same way) and reports attack AUC, ad
 true-positive rate at 0.1% and 1% false positives, against limits signed off in
 [#3](https://github.com/pesaclarity/pesaclarity-ml/issues/3). How to run it and read the
 numbers: [docs/PRIVACY-AUDIT.md](docs/PRIVACY-AUDIT.md). Each privacy report also gives the
-tighter PLD accountant's epsilon (`epsilon_pld`) next to the RDP one the gate checks.
+tighter PRV accountant's epsilon (`epsilon_pld`, the name kept from the PLD accountant it
+replaced) next to the RDP one the gate checks.
 
 ## Project layout
 
 ```text
 configs/                  experiment configs (YAML, validated by pydantic)
 docs/ASK.md               Ask reader and writer spec for the app
+docs/CATEGORISER.md       the categoriser: its file, scores and parity
 docs/FEATURES.md          feature pipeline spec for the app
+docs/FINE-TUNING.md       the categoriser's fine-tuning step, spec for the app
 docs/PRIVACY-AUDIT.md     membership-inference audit: running it, reading it
 docs/RELEASE-CHECKLIST.md release conditions for any model
 docs/WEIGHTS.md           plain weights format the app's Dart models read
@@ -201,16 +215,19 @@ src/akili/
   ask/                    Ask: questions, replies, reader and writer training, examples;
                           reader_model.py: the torch Ask reader [torch]
                           (keras_reader.py: the old Keras one [train])
-  model.py                the Keras categoriser            [train]
-  train/                  centralised and DP-SGD training   [train]
-  export/                 TFLite export, size budget, plain weights format;
-                          onnx.py: a torch model to rayo's weights via ONNX [torch]
+  model.py                the categoriser in PyTorch (keras_model.py: the old Keras
+                          one [train], until TensorFlow is removed)
+  train/                  centralised and DP-SGD training: the PyTorch backend [torch]
+                          (keras_pipeline.py, keras_dp_sgd.py: the Keras one [train])
+  export/                 size budget, plain weights format, the fine-tuning step;
+                          onnx.py: a torch model to rayo's weights via ONNX [torch];
+                          tflite.py, trainable.py: the Keras exports [train]
   federated/              client, update maths, simulation, Flower adapter
-  privacy/                privacy accounting, budget ledger, membership-inference audit
-                          (mia.py [train]), release gate
+  privacy/                privacy accounting (Opacus), budget ledger, the accountants
+                          compared, membership-inference audit, release gate
   tracking.py             MLflow wrapper                    [train]
   cli.py                  the `akili` command
-tests/                    pytest; test_tf_* need the [train] extra, test_torch_* [torch]
+tests/                    pytest; test_tf_* need the [train] extra, most test_torch_* [torch]
 ```
 
 ## Testing
