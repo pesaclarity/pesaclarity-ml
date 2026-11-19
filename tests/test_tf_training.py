@@ -1,4 +1,6 @@
-"""Model, DP-SGD, TFLite export and tracking. Skipped unless the [train] extra is installed."""
+"""The Keras categoriser kept for ``--keras``: model, Keras DP-SGD, TFLite export and tracking.
+Skipped unless the [train] extra is installed. The PyTorch categoriser's are in
+test_torch_dp_sgd.py and test_categoriser_torch.py."""
 
 import json
 from pathlib import Path
@@ -23,10 +25,11 @@ from akili.config import (
 from akili.export.size import ModelTooLargeError
 from akili.export.tflite import export_tflite, run_tflite
 from akili.features import encode_batch, feature_width
-from akili.model import build_categoriser
+from akili.keras_model import build_categoriser
 from akili.privacy.accounting import PrivacyUnit
 from akili.synthetic import generate
-from akili.train.dp_sgd import train_dp_sgd
+from akili.train.keras_dp_sgd import train_dp_sgd
+from akili.train.keras_pipeline import KerasBackend
 from akili.train.pipeline import run_centralised
 
 pytestmark = pytest.mark.tf
@@ -305,7 +308,7 @@ def test_pipeline_tracks_dp_run(tmp_path: Path) -> None:
             experiment="akili-test",
         ),
     )
-    result = run_centralised(cfg)
+    result = run_centralised(cfg, backend=KerasBackend())
     assert result.privacy is not None
     assert result.privacy.unit is PrivacyUnit.USER
     assert result.privacy.population == 16  # 4 of the 20 people are held out
@@ -325,7 +328,7 @@ def test_pipeline_tracks_dp_run(tmp_path: Path) -> None:
     assert result.budget.runs == 1
     assert result.budget.epsilon == pytest.approx(result.privacy.epsilon)
 
-    again = run_centralised(cfg)
+    again = run_centralised(cfg, backend=KerasBackend())
     assert again.budget is not None
     assert again.budget.runs == 2
     assert again.budget.epsilon > result.budget.epsilon

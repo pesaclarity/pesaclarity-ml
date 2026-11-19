@@ -20,6 +20,7 @@ from akili.config import (
 )
 from akili.privacy.audit import AuditReport
 from akili.privacy.mia import quick_config
+from akili.train.keras_pipeline import KerasBackend
 from akili.train.pipeline import run_centralised
 
 pytestmark = pytest.mark.tf
@@ -44,7 +45,7 @@ def test_pipeline_runs_audit_and_logs_it(tmp_path: Path) -> None:
         audit=AuditConfig(enabled=True, shadow_models=4, max_candidates=50),
         tracking=tracking(tmp_path),
     )
-    result = run_centralised(cfg)
+    result = run_centralised(cfg, backend=KerasBackend())
     assert result.audit is not None
     report = AuditReport.model_validate_json(
         (result.run_dir / "audit-report.json").read_text(encoding="utf-8")
@@ -75,7 +76,7 @@ def test_lira_detects_a_memorising_model(tmp_path: Path) -> None:
         audit=AuditConfig(enabled=True, shadow_models=4, max_candidates=240, score_exported=False),
         tracking=TrackingConfig(enabled=False),
     )
-    report = run_centralised(cfg).audit
+    report = run_centralised(cfg, backend=KerasBackend()).audit
     assert report is not None
     best = max(report.results, key=lambda r: r.auc)
     assert best.auc > 0.6, report.results
@@ -96,7 +97,7 @@ def test_cli_quick_audit(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> 
         encoding="utf-8",
     )
     assert quick_config(ExperimentConfig(name="x")).audit.shadow_models == 4
-    args = ["audit", "--quick", "--shadow-models", "2", "--config", str(path)]
+    args = ["audit", "--keras", "--quick", "--shadow-models", "2", "--config", str(path)]
     assert main(args) == 1  # a quick audit is too small to pass
     out = capsys.readouterr().out
     assert "tiny-audit-quick (no DP)" in out
