@@ -177,6 +177,10 @@ def test_version_4_names_are_new_words() -> None:
         for w in n.split()
     }
     assert not new_words & evaluated
+    first = {w.lower() for w in names.TRAIN.first}
+    assert not first & evaluated
+    assert not first & names.HELD_ONLY_WORDS
+    assert not first & {w.lower() for w in names.HELD_OUT.words}
     # Nor a word the questions use for anything else (names.QUESTION_WORDS keeps it so).
     used = set()
     for text in [t for ts in questions.TEMPLATES.values() for t in ts] + [
