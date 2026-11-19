@@ -90,6 +90,9 @@ class AskReaderConfig:
     cosine_floor: float = 0.05
     intent_label_smoothing: float = 0.05
     slot_label_smoothing: float = 0.05
+    weight_decay: float = 0.01
+    """AdamW's decoupled weight decay (0.0: Adam, the Keras recipe). It keeps the weights and
+    activations small, so rayo's int8 file stays close to the torch model (docs/ASK.md#parity)."""
     threads: int = 1  # torch's CPU threads: fixed, so a run is repeatable
     # How far rayo's int8 file may be from the torch model's float probabilities on the parity
     # questions (docs/ASK.md#parity): the largest difference per output, the 99.9th percentile
@@ -348,7 +351,12 @@ def fit(cfg: AskReaderConfig, questions: list[Question]) -> Any:
     labels = torch.from_numpy(np.maximum(y, 0).astype(np.int64))
     weight = torch.from_numpy((y >= 0).astype(np.float32))
     intents = torch.from_numpy(k.astype(np.int64))
-    optimiser = torch.optim.Adam(model.parameters(), lr=cfg.learning_rate, eps=1e-7)
+    if cfg.weight_decay:
+        optimiser: Any = torch.optim.AdamW(
+            model.parameters(), lr=cfg.learning_rate, eps=1e-7, weight_decay=cfg.weight_decay
+        )
+    else:
+        optimiser = torch.optim.Adam(model.parameters(), lr=cfg.learning_rate, eps=1e-7)
     steps = cfg.epochs * -(-len(x) // cfg.batch_size)
     schedule = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimiser, steps, eta_min=cfg.learning_rate * cfg.cosine_floor

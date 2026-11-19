@@ -15,11 +15,12 @@ reader has seen. Its business words, prefixes and tails are the common ones trai
 only the held-out pool has; the probe also scores the names made of those alone. Nothing here
 is a real person, business or message.
 
-Version 4 adds two shapes to the training pool only (the held-out pool is unchanged):
+Version 4 adds three shapes to the training pool only (the held-out pool is unchanged):
 :meth:`NamePool.short_name`, a single word (a syllable word or an invented word that starts
-with a vowel), and :meth:`NamePool.long_name`, two to four words in which plain words
-("Corner", "Golden", "Sunrise") stand beside prefixes, syllable words and business words, so a
-name whose second word is an ordinary word still reads whole.
+with a vowel); :meth:`NamePool.first_name`, a common first name alone; and
+:meth:`NamePool.long_name`, two to four words in which plain words ("Corner", "Golden",
+"Sunrise") stand beside prefixes, syllable words and business words, so a name whose second
+word is an ordinary word still reads whole.
 """
 
 from __future__ import annotations
@@ -62,6 +63,16 @@ _TRAIN_PLAIN = [
     "Alpha", "Omega", "Delta", "Nova", "Apex", "Zenith", "Horizon", "Harmony", "Liberty",
     "Victory", "Unity", "Elite", "Choice", "Village", "Island", "Meadow", "Orchard",
     "Spring", "Lighthouse", "Anchor", "Compass", "Falcon", "Kestrel", "Phoenix", "Rhino",
+]  # fmt: skip
+# Common first names, one word, as people type a contact (version 4, training only). None is a
+# name, or a word of a name, that an evaluation set asks about.
+_TRAIN_FIRST = [
+    "Kevin", "Peter", "Grace", "Faith", "David", "Lucy", "Moses", "Esther", "Joseph", "Daniel",
+    "Samuel", "Ruth", "Agnes", "Dennis", "Collins", "Mercy", "Purity", "Ian", "Victor", "Sharon",
+    "Cynthia", "Stephen", "Kelvin", "Felix", "Winnie", "Joy", "Martin", "Paul", "James", "Ann",
+    "Jane", "Caro", "Wycliffe", "Eunice", "Fred", "Hellen", "Kennedy", "Linda", "Maureen",
+    "Nelson", "Patrick", "Sam", "Tom", "Vivian", "Wilson", "Zawadi", "Amina", "Hassan", "Halima",
+    "Juma", "Ali", "Fatuma",
 ]  # fmt: skip
 _TITLES = ["Mama", "Baba", "Mzee", "Auntie", "Uncle", "Dr", "Madam", "Cucu"]
 _TRAIN_TAILS = ["Ltd", "Limited", "& Sons", "Kenya", "Co"]
@@ -131,11 +142,11 @@ _FORMS = ["w", "ww", "wb", "wb", "pb", "pw", "tw", "pwb", "wbx", "pwbx", "wwb", 
 QUESTION_WORDS = {"unga", "ebu", "aki", "ati", "ile", "uza", "ya"}
 # Version 4's longer shapes, with c a plain word ("Corner"): "pc" is "Example Corner".
 LONG_FORMS = ["pc", "pc", "cb", "wc", "cw", "cc", "pcb", "ccb", "wcb", "pwc", "tc", "cbx"]
-# Version 4's names are seldom all lower case: a lower-case plain word ("golden", "palm") reads
-# like a category, and the reader learned to take one for a payee.
+# Version 4's longer names are seldom all lower case: a lower-case plain word ("golden",
+# "palm") reads like a category, and the reader learned to take one for a payee.
 V4_CASING = (0.72, 0.82)
-# Version 4's one-word shapes: w a syllable word, v a vowel word. Plain words stay out of
-# one-word names: alone, in lower case, they read like a category ("fuel", "rent").
+# Version 4's one-word shapes: w a syllable word, v a vowel word. Plain words
+# stay out of one-word names: alone, in lower case, they read like a category ("fuel", "rent").
 SHORT_FORMS = ["w", "v", "v"]
 
 
@@ -152,6 +163,7 @@ class NamePool:
         own: set[str] | None = None,
         plain: list[str] | None = None,
         vowel_words: list[str] | None = None,
+        first: list[str] | None = None,
     ) -> None:
         self.words = words
         self.business = business
@@ -162,12 +174,14 @@ class NamePool:
         self.plain = plain or []
         """Plain words for :meth:`long_name` and :meth:`short_name` (version 4)."""
         self.vowel_words = vowel_words or []
+        self.first = first or []
 
     def _base(self, rng: np.random.Generator, forms: list[str] = _FORMS) -> str:
         source = {"w": self.words, "b": self.business, "p": self.prefixes, "t": _TITLES}
         source["x"] = self.tails
         source["c"] = self.plain
         source["v"] = self.vowel_words
+        source["f"] = self.first
         form = forms[int(rng.integers(len(forms)))]
         return " ".join(source[c][int(rng.integers(len(source[c])))] for c in form)
 
@@ -181,9 +195,14 @@ class NamePool:
         return self._name(rng, LONG_FORMS, V4_CASING)
 
     def short_name(self, rng: np.random.Generator) -> str:
-        """A one-word name (a syllable word or a vowel word), cased as
-        :meth:`name` (version 4; needs ``plain`` and ``vowel_words``)."""
-        return self._name(rng, SHORT_FORMS, V4_CASING)
+        """A one-word name (a syllable word or a vowel word), cased as :meth:`name`
+        (version 4; needs ``vowel_words``)."""
+        return self._name(rng, SHORT_FORMS)
+
+    def first_name(self, rng: np.random.Generator) -> str:
+        """A common first name alone ("Kevin", "faith"), cased as :meth:`name` (version 4;
+        needs ``first``)."""
+        return self._name(rng, ["f"])
 
     def _name(
         self, rng: np.random.Generator, forms: list[str], casing: tuple[float, float] = (0.55, 0.82)
@@ -207,9 +226,17 @@ class NamePool:
         return " ".join(w.lower() if rng.random() < 0.5 else w for w in base.split())
 
     def sacco(self, rng: np.random.Generator) -> str:
-        w = self.words[int(rng.integers(len(self.words)))]
-        p = self.prefixes[int(rng.integers(len(self.prefixes)))]
-        name = f"{w} Sacco" if rng.random() < 0.7 else f"{p} Sacco"
+        """A Sacco's name ("Kamathi Sacco", "Demo Sacco"), never one of :data:`EXCLUDED` (the
+        app's "Example Sacco") and, for a pool with ``own`` words, always one of them."""
+        while True:
+            w = self.words[int(rng.integers(len(self.words)))]
+            p = self.prefixes[int(rng.integers(len(self.prefixes)))]
+            name = f"{w} Sacco" if rng.random() < 0.7 else f"{p} Sacco"
+            lower = name.lower()
+            if lower in EXCLUDED:
+                continue
+            if self.own is None or any(x in self.own for x in lower.split()):
+                break
         return name.lower() if rng.random() < 0.4 else name
 
 
@@ -233,6 +260,7 @@ def _pools() -> tuple[NamePool, NamePool, set[str]]:
             _TRAIN_TAILS,
             plain=_TRAIN_PLAIN,
             vowel_words=vowel_words,
+            first=_TRAIN_FIRST,
         ),
         NamePool(
             held_words,
