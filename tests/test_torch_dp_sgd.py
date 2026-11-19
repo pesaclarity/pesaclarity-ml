@@ -2,23 +2,33 @@
 on the torch loop. Per-example and per-person clipping over every weight together (against
 gradients computed one at a time), noise of standard deviation sigma x C on the sum divided by
 the expected batch, Poisson batches, the steps the accountant is told, and noise from OS
-entropy unless seeded. PyTorch is a core dependency (through opacus), so these run everywhere.
+entropy unless seeded. Needs PyTorch and Opacus: the [torch] extra (or [train], which has both).
 """
 
 from __future__ import annotations
 
 import numpy as np
 import pytest
-import torch
 
-from akili.categories import default_categories
-from akili.config import DPConfig, FeatureConfig, ModelConfig, SyntheticDataConfig, TrainingConfig
-from akili.features import encode_batch
-from akili.model import build_categoriser
-from akili.privacy.accounting import PrivacyUnit, dp_sgd_report
-from akili.synthetic import generate
-from akili.train.dp_sgd import group_by_user, user_rows
-from akili.train.torch_dp_sgd import train_dp_sgd
+torch = pytest.importorskip("torch")
+pytest.importorskip("opacus")
+
+from akili.categories import default_categories  # noqa: E402
+from akili.config import (  # noqa: E402
+    DPConfig,
+    FeatureConfig,
+    ModelConfig,
+    SyntheticDataConfig,
+    TrainingConfig,
+)
+from akili.features import encode_batch  # noqa: E402
+from akili.model import build_categoriser  # noqa: E402
+from akili.privacy.accounting import PrivacyUnit, dp_sgd_report  # noqa: E402
+from akili.synthetic import generate  # noqa: E402
+from akili.train.dp_sgd import group_by_user, user_rows  # noqa: E402
+from akili.train.torch_dp_sgd import train_dp_sgd  # noqa: E402
+
+pytestmark = pytest.mark.torch
 
 N_CLASSES = len(default_categories().labels)
 EXAMPLES = DPConfig(enabled=True, unit=PrivacyUnit.EXAMPLE)

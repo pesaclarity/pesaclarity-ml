@@ -17,14 +17,14 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-import torch
 
+torch = pytest.importorskip("torch")
 pytest.importorskip("onnx")
 pytest.importorskip("mlflow")
 
-from akili import model as cm
-from akili.categories import default_categories
-from akili.config import (
+from akili import model as cm  # noqa: E402
+from akili.categories import default_categories  # noqa: E402
+from akili.config import (  # noqa: E402
     DPConfig,
     ExperimentConfig,
     ExportConfig,
@@ -34,14 +34,14 @@ from akili.config import (
     TrackingConfig,
     TrainingConfig,
 )
-from akili.export import fine_tune
-from akili.export.size import ModelTooLargeError
-from akili.export.weights import read_weights
-from akili.features import encode_batch, feature_width
-from akili.privacy.accounting import PrivacyUnit
-from akili.synthetic import generate
-from akili.train import torch_backend as tb
-from akili.train.pipeline import TrainResult, run_centralised
+from akili.export import fine_tune  # noqa: E402
+from akili.export.size import ModelTooLargeError  # noqa: E402
+from akili.export.weights import read_weights  # noqa: E402
+from akili.features import encode_batch, feature_width  # noqa: E402
+from akili.privacy.accounting import PrivacyUnit  # noqa: E402
+from akili.synthetic import generate  # noqa: E402
+from akili.train import torch_backend as tb  # noqa: E402
+from akili.train.pipeline import TrainResult, run_centralised  # noqa: E402
 
 pytestmark = pytest.mark.torch
 

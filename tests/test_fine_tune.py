@@ -1,6 +1,7 @@
 """The categoriser's fine-tuning step (akili.export.fine_tune, docs/FINE-TUNING.md): the
 committed vectors are what the code gives, torch's automatic gradients match the step as the
-spec writes it, and the manifest block names the tensors the step trains."""
+spec writes it, and the manifest block names the tensors the step trains. Needs PyTorch (the
+[torch] extra)."""
 
 from __future__ import annotations
 
@@ -9,10 +10,14 @@ import json
 import numpy as np
 import pytest
 
+pytest.importorskip("torch")
+
 from akili.categories import default_categories
 from akili.config import FeatureConfig, FineTuneConfig, ModelConfig
 from akili.export import fine_tune
 from akili.model import build_categoriser
+
+pytestmark = pytest.mark.torch
 
 DOC = json.loads(fine_tune.default_path().read_text(encoding="utf-8"))
 

@@ -3,6 +3,9 @@ from pathlib import Path
 
 import pytest
 
+# The reports below come from the privacy accountant, Opacus (the [torch] extra).
+pytest.importorskip("opacus")
+
 from akili.privacy.accounting import PrivacyUnit, dp_fedavg_report, dp_sgd_report
 from akili.privacy.audit import (
     AuditResult,
@@ -13,6 +16,8 @@ from akili.privacy.audit import (
 from akili.privacy.gate import ReleaseEvidence, evaluate_release, load_evidence
 from akili.privacy.ledger import BudgetTotal
 from akili.tracks import Track
+
+pytestmark = pytest.mark.torch
 
 PRIVACY = dp_fedavg_report(
     n_clients=50_000,
