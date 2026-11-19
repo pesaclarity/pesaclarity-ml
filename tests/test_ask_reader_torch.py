@@ -192,8 +192,10 @@ def test_on_rayo(trained: tuple[Path, dict[str, object]]) -> None:
     x, y, _ = questions.to_arrays(questions.generate(30, seed=9, pool=names.TRAIN))
     rayo = ar.run_converted(RayoRunner(data, d), x)
     ref = ar.run_converted(ReferenceRunner(onnx, rm.RAYO_OPTIONS), x)
-    for a, b in zip(rayo, ref, strict=True):
-        assert np.abs(a - b).max() <= 1e-4
+    # The slots on the question's tokens: padding positions are meaningless (docs/ASK.md),
+    # and rayo-convert's float64 reference can round an int8 value there the other way.
+    assert np.abs(rayo[0] - ref[0]).max() <= 1e-4
+    assert np.abs(rayo[1] - ref[1])[y >= 0].max() <= 1e-4
     w = read_weights(data)
     for row, labels, intent, slots in zip(x, y, *rayo, strict=True):
         di, ds = forward(w, row)

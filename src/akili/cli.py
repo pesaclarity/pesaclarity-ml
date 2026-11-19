@@ -164,7 +164,7 @@ def _ask_reader(args: argparse.Namespace) -> int:
         print(f"unseen templates: intent accuracy {unseen['mean_intent_accuracy']:.3f}")
         for name, f1 in unseen["mean_slot_f1"].items():
             print(f"  {name:<9} F1 {f1:.3f}")
-        for key in ("v2", "v3"):
+        for key in ("v2", "v3", "v4"):
             if unseen.get(key):
                 v = unseen[key]
                 print(
@@ -273,7 +273,7 @@ def _add_ask_commands(sub: Any) -> None:
     )
     p.add_argument("--out", default="artefacts/ask-reader")
     p.add_argument("--questions", type=int, default=120_000)
-    p.add_argument("--epochs", type=int, default=20)
+    p.add_argument("--epochs", type=int, default=30)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--skip-evaluation", action="store_true")
     p.add_argument(

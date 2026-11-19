@@ -14,6 +14,13 @@ reader has seen. Its business words, prefixes and tails are the common ones trai
 "Mock", "EA"), since real merchants share such words. :data:`HELD_ONLY_WORDS` are the words
 only the held-out pool has; the probe also scores the names made of those alone. Nothing here
 is a real person, business or message.
+
+Version 4 adds three shapes to the training pool only (the held-out pool is unchanged):
+:meth:`NamePool.short_name`, a single word (a syllable word or an invented word that starts
+with a vowel); :meth:`NamePool.first_name`, a common first name alone; and
+:meth:`NamePool.long_name`, two to four words in which plain words ("Corner", "Golden",
+"Sunrise") stand beside prefixes, syllable words and business words, so a name whose second
+word is an ordinary word still reads whole.
 """
 
 from __future__ import annotations
@@ -43,6 +50,30 @@ _HELD_BUSINESS = [
 ]  # fmt: skip
 _TRAIN_PREFIXES = ["Example", "Sample", "Demo"]
 _HELD_PREFIXES = ["Test", "Fake", "Mock"]
+# Plain words that real merchants put in their names (version 4, training only). None is a word
+# of the held-out pool, of the app's test names or of a date, amount or question word.
+_TRAIN_PLAIN = [
+    "Corner", "Point", "Junction", "Plaza", "Centre", "Express", "Quick", "Prime", "Royal",
+    "Golden", "Sunrise", "Sunset", "Green", "Blue", "Star", "City", "Valley", "Hill", "Gate",
+    "Bridge", "Rock", "River", "Lake", "Park", "Garden", "Palm", "Cedar", "Acacia", "Baobab",
+    "Jacaranda", "Eagle", "Lion", "Simba", "Tembo", "Twiga", "Nyota", "Upendo", "Amani",
+    "Baraka", "Neema", "Faraja", "Tumaini", "Uhuru", "Umoja", "Pamoja", "Bidii", "Fanaka",
+    "Mwangaza", "Classic", "Modern", "Urban", "Metro", "Global", "United", "Pioneer",
+    "Summit", "Crown", "Diamond", "Pearl", "Silver", "Ocean", "Coast", "Highway", "Square",
+    "Alpha", "Omega", "Delta", "Nova", "Apex", "Zenith", "Horizon", "Harmony", "Liberty",
+    "Victory", "Unity", "Elite", "Choice", "Village", "Island", "Meadow", "Orchard",
+    "Spring", "Lighthouse", "Anchor", "Compass", "Falcon", "Kestrel", "Phoenix", "Rhino",
+]  # fmt: skip
+# Common first names, one word, as people type a contact (version 4, training only). None is a
+# name, or a word of a name, that an evaluation set asks about.
+_TRAIN_FIRST = [
+    "Kevin", "Peter", "Grace", "Faith", "David", "Lucy", "Moses", "Esther", "Joseph", "Daniel",
+    "Samuel", "Ruth", "Agnes", "Dennis", "Collins", "Mercy", "Purity", "Ian", "Victor", "Sharon",
+    "Cynthia", "Stephen", "Kelvin", "Felix", "Winnie", "Joy", "Martin", "Paul", "James", "Ann",
+    "Jane", "Caro", "Wycliffe", "Eunice", "Fred", "Hellen", "Kennedy", "Linda", "Maureen",
+    "Nelson", "Patrick", "Sam", "Tom", "Vivian", "Wilson", "Zawadi", "Amina", "Hassan", "Halima",
+    "Juma", "Ali", "Fatuma",
+]  # fmt: skip
 _TITLES = ["Mama", "Baba", "Mzee", "Auntie", "Uncle", "Dr", "Madam", "Cucu"]
 _TRAIN_TAILS = ["Ltd", "Limited", "& Sons", "Kenya", "Co"]
 _HELD_TAILS = ["Group", "& Daughters", "EA", "Intl"]
@@ -71,6 +102,23 @@ EXCLUDED = {
 }  # fmt: skip
 
 
+def _vowel_words(rng: np.random.Generator, n: int, avoid: set[str]) -> list[str]:
+    """Invented brand-like words that start with a vowel ("Abeko", "Imaro"), four to six
+    letters, which the syllable words (all starting with a consonant) never are."""
+    out: list[str] = []
+    seen = set(avoid)
+    while len(out) < n:
+        w = "aeiou"[int(rng.integers(5))]
+        for _ in range(int(rng.integers(1, 3))):
+            w += _ONSETS[int(rng.integers(len(_ONSETS)))] + _VOWELS[int(rng.integers(8))]
+        if rng.random() < 0.2:
+            w += "n"
+        if 4 <= len(w) <= 6 and w not in seen:
+            seen.add(w)
+            out.append(w.capitalize())
+    return out
+
+
 def _words(rng: np.random.Generator, n: int, avoid: set[str]) -> list[str]:
     out: list[str] = []
     seen = set(avoid)
@@ -89,6 +137,17 @@ def _words(rng: np.random.Generator, n: int, avoid: set[str]) -> list[str]:
 # Name shapes: w a syllable word, b a business word, p a prefix ("Example"), t a title
 # ("Mama"), x a tail ("Ltd"). "wb" is twice as likely as the others.
 _FORMS = ["w", "ww", "wb", "wb", "pb", "pw", "tw", "pwb", "wbx", "pwbx", "wwb", "www"]
+# Words the questions themselves use that an invented vowel word could spell ("unga" is flour).
+# A test checks that no version 4 name word is a word of a template, the lexicon or a value list.
+QUESTION_WORDS = {"unga", "ebu", "aki", "ati", "ile", "uza", "ya"}
+# Version 4's longer shapes, with c a plain word ("Corner"): "pc" is "Example Corner".
+LONG_FORMS = ["pc", "pc", "cb", "wc", "cw", "cc", "pcb", "ccb", "wcb", "pwc", "tc", "cbx"]
+# Version 4's longer names are seldom all lower case: a lower-case plain word ("golden",
+# "palm") reads like a category, and the reader learned to take one for a payee.
+V4_CASING = (0.72, 0.82)
+# Version 4's one-word shapes: w a syllable word, v a vowel word. Plain words
+# stay out of one-word names: alone, in lower case, they read like a category ("fuel", "rent").
+SHORT_FORMS = ["w", "v", "v"]
 
 
 class NamePool:
@@ -100,7 +159,11 @@ class NamePool:
         business: list[str],
         prefixes: list[str],
         tails: list[str],
+        *,
         own: set[str] | None = None,
+        plain: list[str] | None = None,
+        vowel_words: list[str] | None = None,
+        first: list[str] | None = None,
     ) -> None:
         self.words = words
         self.business = business
@@ -108,35 +171,72 @@ class NamePool:
         self.tails = tails
         self.own = own
         """When set, every name has at least one of these words, so no other pool makes it."""
+        self.plain = plain or []
+        """Plain words for :meth:`long_name` and :meth:`short_name` (version 4)."""
+        self.vowel_words = vowel_words or []
+        self.first = first or []
 
-    def _base(self, rng: np.random.Generator) -> str:
+    def _base(self, rng: np.random.Generator, forms: list[str] = _FORMS) -> str:
         source = {"w": self.words, "b": self.business, "p": self.prefixes, "t": _TITLES}
         source["x"] = self.tails
-        form = _FORMS[int(rng.integers(len(_FORMS)))]
+        source["c"] = self.plain
+        source["v"] = self.vowel_words
+        source["f"] = self.first
+        form = forms[int(rng.integers(len(forms)))]
         return " ".join(source[c][int(rng.integers(len(source[c])))] for c in form)
 
     def name(self, rng: np.random.Generator) -> str:
         """One name, one to four words, cased the way people type it."""
+        return self._name(rng, _FORMS)
+
+    def long_name(self, rng: np.random.Generator) -> str:
+        """A name of two to four words with a plain word in it ("Example Corner", "Golden
+        Butchery"), cased as :meth:`name` (version 4; needs ``plain``)."""
+        return self._name(rng, LONG_FORMS, V4_CASING)
+
+    def short_name(self, rng: np.random.Generator) -> str:
+        """A one-word name (a syllable word or a vowel word), cased as :meth:`name`
+        (version 4; needs ``vowel_words``)."""
+        return self._name(rng, SHORT_FORMS)
+
+    def first_name(self, rng: np.random.Generator) -> str:
+        """A common first name alone ("Kevin", "faith"), cased as :meth:`name` (version 4;
+        needs ``first``)."""
+        return self._name(rng, ["f"])
+
+    def _name(
+        self, rng: np.random.Generator, forms: list[str], casing: tuple[float, float] = (0.55, 0.82)
+    ) -> str:
+        """A name of one of ``forms``: as written with the share ``casing[0]``, in lower case up
+        to ``casing[1]``, then upper case or mixed."""
         while True:
-            base = self._base(rng)
+            base = self._base(rng, forms)
             lower = base.lower()
             if lower in EXCLUDED or len(base.split()) > 4:
                 continue
             if self.own is None or any(w in self.own for w in lower.split()):
                 break
         r = rng.random()
-        if r < 0.55:
+        if r < casing[0]:
             return base
-        if r < 0.82:
+        if r < casing[1]:
             return base.lower()
         if r < 0.9:
             return base.upper()
         return " ".join(w.lower() if rng.random() < 0.5 else w for w in base.split())
 
     def sacco(self, rng: np.random.Generator) -> str:
-        w = self.words[int(rng.integers(len(self.words)))]
-        p = self.prefixes[int(rng.integers(len(self.prefixes)))]
-        name = f"{w} Sacco" if rng.random() < 0.7 else f"{p} Sacco"
+        """A Sacco's name ("Kamathi Sacco", "Demo Sacco"), never one of :data:`EXCLUDED` (the
+        app's "Example Sacco") and, for a pool with ``own`` words, always one of them."""
+        while True:
+            w = self.words[int(rng.integers(len(self.words)))]
+            p = self.prefixes[int(rng.integers(len(self.prefixes)))]
+            name = f"{w} Sacco" if rng.random() < 0.7 else f"{p} Sacco"
+            lower = name.lower()
+            if lower in EXCLUDED:
+                continue
+            if self.own is None or any(x in self.own for x in lower.split()):
+                break
         return name.lower() if rng.random() < 0.4 else name
 
 
@@ -150,8 +250,18 @@ def _pools() -> tuple[NamePool, NamePool, set[str]]:
         for w in phrase.split()
         if w.isalpha()
     }
+    avoid = {w for name in EXCLUDED for w in name.split()} | QUESTION_WORDS
+    vowel_words = _vowel_words(np.random.default_rng(41), 120, avoid)
     return (
-        NamePool(train_words, _TRAIN_BUSINESS, _TRAIN_PREFIXES, _TRAIN_TAILS),
+        NamePool(
+            train_words,
+            _TRAIN_BUSINESS,
+            _TRAIN_PREFIXES,
+            _TRAIN_TAILS,
+            plain=_TRAIN_PLAIN,
+            vowel_words=vowel_words,
+            first=_TRAIN_FIRST,
+        ),
         NamePool(
             held_words,
             _HELD_BUSINESS + _TRAIN_BUSINESS,

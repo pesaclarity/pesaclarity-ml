@@ -178,7 +178,7 @@ def score(model: Any, questions: list[Question], path: Path) -> dict[str, Any]:
 
 def fold_scores(cfg: AskReaderConfig, i: int, work: Path) -> dict[str, Any]:
     """Fold ``i`` (:func:`akili.ask.reader.fold_questions`): train on the other folds'
-    templates and score on this fold's, as ``v1``, ``v2`` and ``v3``. A fold can run in a
+    templates and score on this fold's, as ``v1`` to ``v4``. A fold can run in a
     process of its own; :func:`akili.ask.reader.summarise_folds` joins them."""
     train, test = fold_questions(cfg, i)
     model = _fit(cfg, train)

@@ -1,11 +1,13 @@
 import hashlib
 import json
+import re
 
 import numpy as np
 import pytest
 
 from akili._optional import has_module
 from akili.ask import examples, names, probes, questions, replies
+from akili.ask.reader import AskReaderConfig, training_questions
 from akili.ask.schema import (
     ASK_INTENTS,
     FLAG_GROUPS,
@@ -84,6 +86,20 @@ def test_version_1_folds_and_questions_are_unchanged() -> None:
     v2 = questions.v2_template_ids()
     assert [f & (v1 | v2) for f in questions.folds(5)] == old
     assert len(v1 | v2) == 724 < len(questions.template_ids())
+    # Version 3 templates keep the folds they had before version 4 (a third permutation).
+    rng = np.random.default_rng(2)
+    for intent in ASK_INTENTS:
+        first = questions.V2_TEMPLATE_COUNTS[intent]
+        order = rng.permutation(questions.V3_TEMPLATE_COUNTS[intent] - first)
+        start = int(rng.integers(5))
+        for j, i in enumerate(order):
+            old[(start + j) % 5].add(f"{intent}:{first + int(i)}")
+    v3 = questions.v3_template_ids()
+    assert [f & (v1 | v2 | v3) for f in questions.folds(5)] == old
+    assert len(v1 | v2 | v3) == 761 < len(questions.template_ids())
+    v4 = questions.v4_template_ids()
+    assert not v4 & (v1 | v2 | v3)
+    assert v1 | v2 | v3 | v4 == set(questions.template_ids())
     # Without a name pool, version 1 templates use the version 1 lists only.
     for q in questions.generate(300, seed=4, templates=v1):
         assert q.template in v1
@@ -110,6 +126,108 @@ def test_invented_names_are_varied_and_kept_apart() -> None:
         if s["slot"] == "payee"
     }
     assert not app_names & train
+
+
+def _words_of(text: str) -> set[str]:
+    return {
+        w.lower() for w in re.findall(r"[A-Za-z]+", re.sub(r"\{[a-z0-9]+\}|<[a-z_]+>", "", text))
+    }
+
+
+def _evaluation_questions() -> dict[str, list[questions.Question]]:
+    return {
+        "app": probes.app_questions(),
+        "misses": [q for _, q in probes.miss_questions()],
+        "conformance": probes.conformance_questions(),
+        "hard": [q for _, q in probes.hard_questions()],
+    }
+
+
+def _normalise(text: str) -> str:
+    return " ".join(re.sub(r"[?!.,]+", " ", text.lower()).split())
+
+
+def _names_in(q: questions.Question) -> set[str]:
+    tokens = tokenise(q.text)
+    return {
+        q.text[tokens[s].start : tokens[e - 1].end].lower()
+        for _, s, e in probes.name_spans(q.slots)
+    }
+
+
+def test_version_4_names_are_new_words() -> None:
+    rng = np.random.default_rng(0)
+    made = {names.TRAIN.long_name(rng) for _ in range(3000)}
+    made |= {names.TRAIN.short_name(rng) for _ in range(3000)}
+    lower = {n.lower() for n in made}
+    assert len(lower) > 2000
+    assert not lower & names.EXCLUDED
+    assert all(1 <= len(n.split()) <= 4 for n in lower)
+    new_words = {w.lower() for w in names.TRAIN.plain + names.TRAIN.vowel_words}
+    # Never a word of the held-out pool, nor of a name the evaluation sets ask about.
+    assert not new_words & names.HELD_ONLY_WORDS
+    assert not new_words & {w.lower() for w in names.HELD_OUT.words}
+    held = {names.HELD_OUT.name(rng).lower() for _ in range(3000)}
+    assert not lower & held
+    evaluated = {
+        w
+        for qs in _evaluation_questions().values()
+        for q in qs
+        for n in _names_in(q)
+        for w in n.split()
+    }
+    assert not new_words & evaluated
+    first = {w.lower() for w in names.TRAIN.first}
+    assert not first & evaluated
+    assert not first & names.HELD_ONLY_WORDS
+    assert not first & {w.lower() for w in names.HELD_OUT.words}
+    # Nor a word the questions use for anything else (names.QUESTION_WORDS keeps it so).
+    used = set()
+    for text in [t for ts in questions.TEMPLATES.values() for t in ts] + [
+        v for vs in questions.LEXICON.values() for v in vs
+    ]:
+        used |= _words_of(text)
+    for values, _ in questions._VALUES.values():
+        used |= {w for v in values for w in _words_of(v)}
+    assert not new_words & used
+    assert not names.HELD_OUT.plain
+    assert not names.HELD_OUT.vowel_words
+
+
+def test_training_never_makes_an_evaluation_question() -> None:
+    # The evaluation sets (the app's questions, the misses, the conformance file and the hard
+    # held-out set) are never trained on. A few short generic questions ("how much did I
+    # receive", "hi") come out of the version 1 to 3 templates as well; no version 4 template
+    # makes any evaluation question, nor any name the evaluation sets ask about.
+    evaluation = {_normalise(q.text) for qs in _evaluation_questions().values() for q in qs}
+    v4 = questions.v4_template_ids()
+    cfg = AskReaderConfig()
+    trained = training_questions(cfg)
+    assert sum(q.template in v4 for q in trained) > cfg.questions // 40  # V4_WEIGHT: 3.8%
+    assert not [q.text for q in trained if q.template in v4 and _normalise(q.text) in evaluation]
+    more = questions.generate(60_000, seed=11, templates=v4, pool=names.TRAIN)
+    more += questions.generate(20_000, seed=12, templates=v4)
+    assert not [q.text for q in more if _normalise(q.text) in evaluation]
+    evaluated = {n for qs in _evaluation_questions().values() for q in qs for n in _names_in(q)}
+    made = {n for q in trained + more if q.template in v4 for n in _names_in(q)}
+    # Version 4 names are invented; the well-known accounts and banks are the only overlap.
+    assert made & evaluated <= {n.lower() for n in [*names.PROBE_ACCOUNTS, *names.BANKS]}
+
+
+def test_version_4_amounts_are_whole_spans() -> None:
+    qs = questions.generate(3000, seed=6, templates=questions.v4_template_ids(), pool=names.TRAIN)
+    amounts = [
+        q.text[tokenise(q.text)[s].start : tokenise(q.text)[e - 1].end]
+        for q in qs
+        for lab, s, e in probes._runs(q.slots, {questions.AMOUNT})
+    ]
+    assert len(amounts) > 300
+    assert all(re.search(r"\d", a) for a in amounts)
+    assert any("," in a for a in amounts)
+    assert any(re.search(r"\d[kK]\b", a) for a in amounts)
+    # Plain digits come only after a bound ("over 1000"); alone they read as a count or a year.
+    assert any(re.fullmatch(r"[a-z ]+ \d+", a.lower()) for a in amounts)
+    assert not any(re.fullmatch(r"\d+", a) for a in amounts)
 
 
 def test_probe_sets() -> None:

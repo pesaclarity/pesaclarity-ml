@@ -117,7 +117,7 @@ small models and the app's own database lookups answer; nothing leaves the phone
   {category} {period}`. Replies hold placeholders only, never a number; the app fills them,
   runs a checker and falls back to a fixed sentence when a reply fails it.
 
-Both train on synthetic text only: questions from about 760 templates with Kenyan English,
+Both train on synthetic text only: questions from about 850 templates with Kenyan English,
 Sheng and Swahili wording, typos and no punctuation, and thousands of invented payee and
 account names; replies combined from about 1,000 hand-written fragments. [docs/ASK.md](docs/ASK.md) is the spec the app implements, with
 conformance cases in [`ask_examples.v1.json`](src/akili/resources/ask_examples.v1.json).
@@ -133,13 +133,13 @@ uv run akili ask-examples                            # regenerate the app's conf
 `ask-reader-report.json` holds the scores ([docs/ASK.md](docs/ASK.md#training-and-scores)
 has the table, against v1 and the Keras v3). Scores are of the int8 file as rayo runs it.
 When a fifth of every intent's templates is left out of training, in five folds, intent
-accuracy on the unseen version 1 phrasings is about 0.88 (v1: 0.83) and slot F1 about 0.86
+accuracy on the unseen version 1 phrasings is about 0.89 (v1: 0.83) and slot F1 about 0.87
 (v1: 0.83; payee, category and item lower, period, account and amount higher). Many held-out templates are Sheng or Swahili phrasings with
 words no other template uses, which no model can read from the rest. On a hard held-out set of
 counts, sums for one payee, money in from someone, money in and account balances, with templates
-and names training never sees, intent accuracy is 0.96 and the payee or account is marked
+and names training never sees, intent accuracy is 0.97 and the payee or account is marked
 exactly in 0.94 of the questions naming one (v1: 0.64 and 0.11); on the questions in the app's
-tests, 0.97 and 0.92 (v1: 0.82 and 0.35; the Keras v3: 1.00 and 0.96). It reads the intent of
+tests, 1.00 and 1.00 (v1: 0.82 and 0.35; the Keras v3: 1.00 and 0.96). It reads the intent of
 all 68 hand-written questions in the conformance file right, and 61 of 62 questions built on
 the previous version's misses ("charges on KCB this month", "how much to john", "has Otieno paid me"). `ask-writer-report.json` samples 2,000 replies at temperature 0.8: about 99.4% pass the
 checker (98.4% for `spent`, scored on its own; the rest fall back to the fixed sentence), and
