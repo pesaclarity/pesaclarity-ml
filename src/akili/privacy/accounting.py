@@ -15,9 +15,11 @@ docs/DP-SGD-REVIEW.md.
 
 from __future__ import annotations
 
+import importlib
 import warnings
 from collections.abc import Iterable
 from enum import StrEnum
+from types import ModuleType
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -123,19 +125,30 @@ def _history(mechanisms: Mechanisms) -> list[tuple[float, float, int]] | None:
     return out
 
 
+def accountants() -> ModuleType:
+    """``opacus.accountants``, which the [torch] and [train] extras install (with torch); the
+    core install has no privacy accounting."""
+    try:
+        return importlib.import_module("opacus.accountants")
+    except ImportError as exc:
+        raise ImportError(
+            "Opacus is not installed: install akili[torch] for privacy accounting "
+            "(uv sync --extra torch)"
+        ) from exc
+
+
 def composed_epsilon(
     mechanisms: Mechanisms, delta: float, orders: tuple[float, ...] = RDP_ORDERS
 ) -> float:
     """Epsilon at ``delta`` of Poisson-subsampled Gaussians composed, from Opacus's
     ``RDPAccountant`` with ``orders`` (by default :data:`RDP_ORDERS`)."""
-    from opacus.accountants import RDPAccountant
-
+    lib = accountants()
     history = _history(mechanisms)
     if history is None:
         return float("inf")
     if not history:
         return 0.0
-    accountant = RDPAccountant()
+    accountant = lib.RDPAccountant()
     accountant.history = history
     with warnings.catch_warnings():
         # Opacus warns when the best order is the first or last; the bound holds either way
@@ -147,14 +160,13 @@ def composed_epsilon(
 def composed_prv_epsilon(mechanisms: Mechanisms, delta: float) -> float:
     """The same from Opacus's ``PRVAccountant``: the upper end of its estimate, within
     :data:`PRV_EPS_ERROR`."""
-    from opacus.accountants import PRVAccountant
-
+    lib = accountants()
     history = _history(mechanisms)
     if history is None:
         return float("inf")
     if not history:
         return 0.0
-    accountant = PRVAccountant()
+    accountant = lib.PRVAccountant()
     accountant.history = history
     return float(accountant.get_epsilon(delta, eps_error=PRV_EPS_ERROR))
 

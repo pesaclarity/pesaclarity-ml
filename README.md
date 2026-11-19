@@ -19,21 +19,21 @@ Needs Python 3.12 and [uv](https://docs.astral.sh/uv/).
 
 ```sh
 uv sync                                   # core: data, configs, features, privacy gate
-uv run pytest                             # core tests; TensorFlow tests skip
+uv run pytest                             # core tests; TensorFlow and torch tests skip
 uv run akili synth --out /tmp/tx.jsonl    # write synthetic transactions
 uv run akili vectors                      # regenerate the feature test vectors for the app
-uv run akili fine-tune-vectors            # regenerate the app's fine-tuning vectors
-uv run akili epsilon --config configs/dp-sgd.yaml
-uv run akili accountants --check          # dp-accounting's and Opacus's budgets side by side
 uv run akili ledger                       # what every DP run so far has spent, per dataset
 
-uv sync --extra torch                     # onnx and MLflow: train and export the PyTorch models
+uv sync --extra torch                     # PyTorch (CPU), Opacus, onnx and MLflow
+uv run akili epsilon --config configs/dp-sgd.yaml   # privacy accounting needs Opacus
+uv run akili accountants --check          # dp-accounting's and Opacus's budgets side by side
+uv run akili fine-tune-vectors            # regenerate the app's fine-tuning vectors
 uv run akili train --config configs/smoke.yaml
 uv run akili train --config configs/dp-sgd.yaml
 uv run akili simulate --config configs/federated-smoke.yaml
 uv run akili audit --quick --config configs/audit-no-dp.yaml --config configs/audit-dp-sgd.yaml
 
-uv sync --extra train --extra fl          # TensorFlow, MLflow and Flower: the Keras models
+uv sync --extra train --extra fl          # TensorFlow, MLflow, Opacus and Flower: the Keras models
 uv run akili train --keras --config configs/smoke.yaml   # the old Keras categoriser, until TensorFlow goes
 ```
 
@@ -223,8 +223,9 @@ src/akili/
                           onnx.py: a torch model to rayo's weights via ONNX [torch];
                           tflite.py, trainable.py: the Keras exports [train]
   federated/              client, update maths, simulation, Flower adapter
-  privacy/                privacy accounting (Opacus), budget ledger, the accountants
-                          compared, membership-inference audit, release gate
+  privacy/                privacy accounting (Opacus, in [torch] and [train]), budget
+                          ledger, the accountants compared, membership-inference audit,
+                          release gate
   tracking.py             MLflow wrapper                    [train]
   cli.py                  the `akili` command
 tests/                    pytest; test_tf_* need the [train] extra, most test_torch_* [torch]

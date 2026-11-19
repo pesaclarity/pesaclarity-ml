@@ -22,6 +22,9 @@ CONFIG_DIR = Path(__file__).resolve().parents[1] / "configs"
 DOC = json.loads(compare.default_path().read_text(encoding="utf-8"))
 ROUNDING = 2e-6  # the file keeps six decimals
 
+# The privacy accountant, Opacus, is in the [torch] extra (and [train]).
+needs_opacus = pytest.mark.skipif(not has_module("opacus"), reason="needs the [torch] extra")
+
 
 def _subset(ids: set[str]) -> dict[str, object]:
     return {
@@ -31,6 +34,8 @@ def _subset(ids: set[str]) -> dict[str, object]:
     }
 
 
+@pytest.mark.torch
+@needs_opacus
 def test_the_file_covers_every_dp_config() -> None:
     want = {
         f"config:{p.stem}"
@@ -43,6 +48,8 @@ def test_the_file_covers_every_dp_config() -> None:
     assert DOC["ledgers"], "no recorded ledger in the comparison"
 
 
+@pytest.mark.torch
+@needs_opacus
 def test_opacus_gives_the_committed_figures() -> None:
     """The configs, the review's example and the ledgers, recomputed (dp-accounting's too while
     it is installed): the grid is checked by `akili accountants --check`."""
@@ -73,6 +80,8 @@ def test_the_limits_admit_no_more_steps() -> None:
     assert d["configs_same"]
 
 
+@pytest.mark.torch
+@needs_opacus
 def test_the_gate_uses_the_integer_orders() -> None:
     """With the fractional orders Opacus's exact series can come out below dp-accounting's
     bound; the file shows where, and the gate's orders leave them out."""
@@ -89,6 +98,8 @@ def test_the_gate_uses_the_integer_orders() -> None:
     assert composed_epsilon(mech, c["delta"]) >= c["dp_accounting"]["rdp"] - ROUNDING
 
 
+@pytest.mark.torch
+@needs_opacus
 @pytest.mark.skipif(not has_module("dp_accounting"), reason="dp-accounting is not installed")
 def test_dp_accounting_gives_its_committed_figures() -> None:
     """Some of the grid, the slowest cases left to `akili accountants --check`."""
@@ -98,6 +109,8 @@ def test_dp_accounting_gives_its_committed_figures() -> None:
     assert compare.mismatches({"cases": committed["cases"]}, {"cases": fresh["cases"]}) == []
 
 
+@pytest.mark.torch
+@needs_opacus
 def test_planned_report_is_what_epsilon_prints(capsys: pytest.CaptureFixture[str]) -> None:
     from akili.cli import main
 

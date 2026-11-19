@@ -1,5 +1,5 @@
-"""akili.export.onnx in the core install: it imports without onnx, and asks for the [torch]
-extra when a model is exported. (PyTorch itself is a core dependency, through opacus.)"""
+"""akili.export.onnx in the core install: it imports without PyTorch or onnx, and asks for the
+[torch] extra when a model is exported (with torch but no onnx, as in the [train] extra, too)."""
 
 from __future__ import annotations
 
@@ -14,9 +14,17 @@ def test_imports_without_torch() -> None:
     assert onnx.OPSET == 17
 
 
+@pytest.mark.skipif(has_module("torch"), reason="PyTorch is installed")
+def test_export_without_torch_names_the_extra() -> None:
+    from akili.export import onnx
+
+    with pytest.raises(ImportError, match=r"Install the \[torch\] extra"):
+        onnx.deterministic()
+
+
 @pytest.mark.skipif(has_module("onnx"), reason="the [torch] extra is installed")
 def test_export_names_the_extra() -> None:
-    import torch
+    torch = pytest.importorskip("torch")
 
     from akili.export import onnx
 

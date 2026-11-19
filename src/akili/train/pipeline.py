@@ -16,6 +16,7 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
+from akili._optional import require
 from akili.categories import default_categories
 from akili.config import ExperimentConfig
 from akili.export.size import ExportedModel
@@ -53,6 +54,7 @@ def backend_for(keras: bool = False) -> Backend:
         from akili.train.keras_pipeline import KerasBackend
 
         return KerasBackend()
+    require("torch", "torch")
     from akili.train.torch_backend import TorchBackend
 
     return TorchBackend()

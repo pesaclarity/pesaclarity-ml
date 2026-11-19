@@ -2,6 +2,7 @@ import math
 
 import pytest
 
+from akili._optional import has_module
 from akili.privacy.accounting import (
     Mechanism,
     PrivacyReport,
@@ -12,20 +13,31 @@ from akili.privacy.accounting import (
     epsilon_for,
 )
 
+# The privacy accountant, Opacus, is in the [torch] extra (and [train]).
+needs_opacus = pytest.mark.skipif(not has_module("opacus"), reason="needs the [torch] extra")
 
+
+@pytest.mark.torch
+@needs_opacus
 def test_known_value() -> None:
     # Abadi et al. style setting: q=0.01, sigma=1.1, 1000 steps, delta=1e-5.
     assert epsilon_for(0.01, 1.1, 1000, 1e-5) == pytest.approx(1.71, abs=0.05)
 
 
+@pytest.mark.torch
+@needs_opacus
 def test_more_noise_spends_less() -> None:
     assert epsilon_for(0.01, 2.0, 1000, 1e-5) < epsilon_for(0.01, 1.0, 1000, 1e-5)
 
 
+@pytest.mark.torch
+@needs_opacus
 def test_more_steps_spend_more() -> None:
     assert epsilon_for(0.01, 1.1, 2000, 1e-5) > epsilon_for(0.01, 1.1, 1000, 1e-5)
 
 
+@pytest.mark.torch
+@needs_opacus
 def test_edge_cases() -> None:
     assert epsilon_for(0.1, 1.0, 0, 1e-5) == 0.0
     assert math.isinf(epsilon_for(0.1, 0.0, 10, 1e-5))
@@ -38,6 +50,8 @@ def test_default_delta_is_below_one_over_n() -> None:
     assert default_delta(10) == 1e-5
 
 
+@pytest.mark.torch
+@needs_opacus
 def test_dp_sgd_report_is_user_level_by_default() -> None:
     report = dp_sgd_report(
         population=2000,
@@ -60,6 +74,8 @@ def test_dp_sgd_report_is_user_level_by_default() -> None:
     assert 0 < report.epsilon_pld < report.epsilon
 
 
+@pytest.mark.torch
+@needs_opacus
 def test_dp_sgd_report_per_example() -> None:
     report = dp_sgd_report(
         population=10_000,
@@ -76,6 +92,8 @@ def test_dp_sgd_report_per_example() -> None:
     assert 0 < report.epsilon < 2
 
 
+@pytest.mark.torch
+@needs_opacus
 def test_a_report_without_the_seed_flag_counts_as_seeded() -> None:
     """Reports written before the flag existed all used a fixed seed."""
     report = dp_fedavg_report(
@@ -91,6 +109,8 @@ def test_a_report_without_the_seed_flag_counts_as_seeded() -> None:
     assert PrivacyReport.model_validate(old).noise_seeded
 
 
+@pytest.mark.torch
+@needs_opacus
 def test_infinite_epsilon_survives_json() -> None:
     report = dp_fedavg_report(
         n_clients=200,
@@ -103,6 +123,8 @@ def test_infinite_epsilon_survives_json() -> None:
     assert math.isinf(PrivacyReport.model_validate_json(report.model_dump_json()).epsilon)
 
 
+@pytest.mark.torch
+@needs_opacus
 def test_dp_fedavg_report_is_user_level() -> None:
     report = dp_fedavg_report(
         n_clients=2000,
@@ -117,3 +139,9 @@ def test_dp_fedavg_report_is_user_level() -> None:
     assert report.steps == 30
     assert report.delta == 1e-6
     assert report.epsilon > 0
+
+
+@pytest.mark.skipif(has_module("opacus"), reason="Opacus is installed")
+def test_accounting_without_opacus_names_the_extra() -> None:
+    with pytest.raises(ImportError, match=r"install akili\[torch\] for privacy accounting"):
+        epsilon_for(0.01, 1.0, 100, 1e-5)

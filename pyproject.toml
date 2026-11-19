@@ -12,9 +12,8 @@ dependencies = [
     # (akili.privacy.reference); removed with TensorFlow (decision 0023, stage 5).
     "dp-accounting>=0.6.0,<0.7",
     "numpy>=1.26,<3",
-    # The privacy accountant (Meta, Apache-2.0): RDP for the gate, PRV for the tighter
-    # figure (decision 0023). It needs torch, which comes from PyTorch's CPU index.
-    "opacus>=1.6,<1.7",
+    # opacus, the privacy accountant, is in the [torch] and [train] extras below: it needs
+    # torch, and the core install stays without it.
     "pydantic>=2.9,<3",
     "pyyaml>=6.0.2,<7",
     # rayo's model converter, pinned to a rayo commit: the plain weights' graph (docs/WEIGHTS.md).
@@ -28,15 +27,19 @@ dependencies = [
 train = [
     "tensorflow>=2.18,<2.22",
     "mlflow>=3.1,<4",
+    # The privacy accountant, for the Keras DP-SGD runs' budgets (as in [torch] below).
+    "opacus>=1.6,<1.7",
 ]
 fl = [
     "flwr>=1.20,<2",
 ]
-# PyTorch on CPU, onnx and MLflow: training and exporting the models that have moved
-# (decision 0023, akili.export.onnx). No TensorFlow. (torch itself is also a core
-# dependency now, through opacus.)
+# PyTorch on CPU, onnx, MLflow and Opacus: training and exporting the models that have
+# moved (decision 0023, akili.export.onnx), and the privacy accountant (Meta, Apache-2.0):
+# RDP for the gate, PRV for the tighter figure (decision 0023). Opacus needs torch, which
+# comes from PyTorch's CPU index (tool.uv.sources below). No TensorFlow.
 torch = [
     "torch>=2.6,<2.16",
+    "opacus>=1.6,<1.7",
     "onnx>=1.17,<2",
     "mlflow>=3.1,<4",
 ]
@@ -117,7 +120,7 @@ addopts = "-ra --strict-markers"
 markers = [
     "tf: needs the [train] extra (TensorFlow)",
     "fl: needs the [fl] extra (Flower)",
-    "torch: needs the [torch] extra (onnx and MLflow; PyTorch itself is core)",
+    "torch: needs the [torch] extra (PyTorch, Opacus, onnx and MLflow)",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning:tensorflow.*",

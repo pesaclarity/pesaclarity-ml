@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from akili._optional import require
 from akili.config import AuditConfig, ExperimentConfig, SyntheticDataConfig, load_config
 from akili.privacy.accounting import PrivacyReport
 from akili.privacy.audit import AuditReport
@@ -45,6 +46,7 @@ def _vectors(args: argparse.Namespace) -> int:
 
 
 def _fine_tune_vectors(args: argparse.Namespace) -> int:
+    require("torch", "torch")  # torch computes the vectors' reference
     from akili.export import fine_tune
 
     path = Path(args.out) if args.out else fine_tune.default_path()
@@ -603,7 +605,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser(
         "fine-tune-vectors",
-        help="regenerate the app's vectors for the categoriser's fine-tuning step",
+        help="regenerate the app's vectors for the categoriser's fine-tuning step [torch]",
     )
     p.add_argument("--out", help="output path (default: the committed file in the package)")
     p.add_argument("--check", action="store_true", help="fail if the file is out of date")
