@@ -199,7 +199,7 @@ def test_training_never_makes_an_evaluation_question() -> None:
     v4 = questions.v4_template_ids()
     cfg = AskReaderConfig()
     trained = training_questions(cfg)
-    assert sum(q.template in v4 for q in trained) > cfg.questions // 20
+    assert sum(q.template in v4 for q in trained) > cfg.questions // 40  # V4_WEIGHT: 3.8%
     assert not [q.text for q in trained if q.template in v4 and _normalise(q.text) in evaluation]
     more = questions.generate(60_000, seed=11, templates=v4, pool=names.TRAIN)
     more += questions.generate(20_000, seed=12, templates=v4)
@@ -221,7 +221,9 @@ def test_version_4_amounts_are_whole_spans() -> None:
     assert all(re.search(r"\d", a) for a in amounts)
     assert any("," in a for a in amounts)
     assert any(re.search(r"\d[kK]\b", a) for a in amounts)
-    assert any(re.fullmatch(r"\d+", a) for a in amounts)
+    # Plain digits come only after a bound ("over 1000"); alone they read as a count or a year.
+    assert any(re.fullmatch(r"[a-z ]+ \d+", a.lower()) for a in amounts)
+    assert not any(re.fullmatch(r"\d+", a) for a in amounts)
 
 
 def test_probe_sets() -> None:

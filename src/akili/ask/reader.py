@@ -68,7 +68,7 @@ Run = Callable[[np.ndarray], tuple[np.ndarray, np.ndarray]]
 class AskReaderConfig:
     questions: int = 120_000
     folds: int = 5
-    epochs: int = 20
+    epochs: int = 30
     batch_size: int = 64
     learning_rate: float = 0.003
     token_dim: int = 24

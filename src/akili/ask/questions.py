@@ -423,6 +423,9 @@ _VALUES: dict[str, tuple[list[str], int]] = {
 }
 
 V2_SHARE = 0.4
+V4_WEIGHT = 0.5
+"""How often a version 4 template is kept when drawn (else one of the intent's earlier ones is
+drawn instead): version 4 adds phrasings without moving the reader far from the rest."""
 """With a name pool, the share of an intent's questions drawn from its version 2 and 3
 templates (on top of their share of the rest)."""
 
@@ -2151,7 +2154,18 @@ LEXICON["got_in"] = [
 LEXICON["paid_by"] = ["paid by", "sent by", "paid from", "sent from", "transferred from"]
 LEXICON["sent_out"] = ["sent", "paid", "transferred", "sent money", "gave", "forwarded"]
 LEXICON["vs"] = ["with", "to", "against", "and", "vs", "versus"]
+LEXICON["few"] = ["2", "3", "5", "10", "20", "three", "five", "ten"]
 _V4_TEMPLATES: dict[str, list[str]] = {
+    # Money paid back is a loan repaid, whatever the name ("did X pay me back").
+    "lent": [
+        "[did|has] {short} [return|returned|refund|refunded|give back|given back] [my money|the "
+        "money|the loan|what i lent]",
+        "[did|has] [{short}|{long}] [paid|sent|brought] [the|my] [money|loan|cash] back [yet|"
+        "already|]",
+        "[have i got|did i get|have i received] [my money|the loan|my cash] back from {short} "
+        "[yet|]",
+        "is {short} [done|finished|through] paying [me|] back",
+    ],
     "received_from": [
         "<got_in> from {short} " + _P,
         "<got_in> from {long} " + _P,
@@ -2203,6 +2217,8 @@ _V4_TEMPLATES: dict[str, list[str]] = {
         "<biggest> <payment> [to|at|with] [{short}|{long}] " + _P,
         "[my|the] <biggest> [payment|transfer|purchase] [i made|i sent|ever] [to|at] {short} " + _P,
         "<biggest> <payment> {amt} " + _P,
+        # Small numbers that are counts, not amounts.
+        "[my|the] [top|] <few> <biggest> [payments|purchases|transactions] " + _P,
     ],
     "debts": [
         "<much> [do i|do i still] <owe> [to|] [{long}|{short}]",
@@ -2229,6 +2245,9 @@ _V4_TEMPLATES: dict[str, list[str]] = {
         "{period} [how many|count the] [payments|transactions] [went|were] {amt}",
         "[payments|transactions|purchases] {amt} [how many|count] " + _P,
         "how many [visits|trips|purchases|payments] to [{long}|{short}] " + _P,
+        "<count> [did i|have i] [buy|pay for|spend on] [stuff|things|items] {amt} " + _P,
+        "[did i|have i] [pay|paid|visit|visited] {long} [more than|over|at least] <few> times "
+        + _P,
     ],
     "spent": [
         "[total|sum] of [all|] [my|] [payments|purchases|transactions] {amt} " + _P,
@@ -2239,6 +2258,11 @@ _V4_TEMPLATES: dict[str, list[str]] = {
         "<much> [did i|have i] [spent|paid|used] on [items|goods|shopping|anything|orders] {amt} "
         + _P,
         "[what|how much] [went|did i pay] [for|on] [items|goods|orders|purchases] {amt} " + _P,
+        "<much> [did i|have i] <spend> on [stuff|things|small things|odd things|everything|bits] "
+        "{amt} " + _P,
+        # A category where a name could stand: not a payee, and not charges.
+        "[what|how much] did [my|the|] {category} [bills|payments|purchases|] cost me " + _P,
+        "<much> [did|has] [my|] {category} cost [me|us] [in total|so far|altogether|] " + _P,
     ],
     "received": [
         "<much> came in [as|in] [payments|deposits|transfers] {amt} " + _P,
@@ -2264,6 +2288,19 @@ _V4_TEMPLATES: dict[str, list[str]] = {
 for _intent, _extra in _V4_TEMPLATES.items():
     TEMPLATES[_intent].extend(_extra)
 
+# Small numbers that count things ("my 5 biggest payments", "top 3 shops"): never amounts.
+_V4_COUNTS: dict[str, list[str]] = {
+    "top_payees": [
+        "[show|list|give me] [my|the] <few> [biggest|main|top] [payees|shops|people i pay] " + _P,
+    ],
+    "top_categories": [
+        "[show|list|give me] [my|the] <few> [biggest|main|top] [categories|spending areas] " + _P,
+    ],
+    "top_items": ["[my|the] <few> [best selling|top selling|best] [items|products|goods] " + _P],
+}
+for _intent, _extra in _V4_COUNTS.items():
+    TEMPLATES[_intent].extend(_extra)
+
 # Amounts for {amt} and {sum}: a value from AMOUNT_VALUES written one of AMOUNT_FORMS ways,
 # and for {amt} a filter around it (a word before, a word after, or a range).
 AMOUNT_VALUES = [
@@ -2284,13 +2321,17 @@ AMOUNT_UNITS = ["bob", "shillings", "/=", "/-", "bob only"]
 
 def _money_text(g: _Gen, value: int, bare: bool = True) -> str:
     """``value`` as people type it: "1000", "1,000", "1k", "1.5K", "ksh 1,000", "1000 bob".
-    Without ``bare``, never four bare digits, which read as a year ("2025")."""
+    Without ``bare``, never bare digits, which read as a count or a year ("top 10", "2025")."""
     plain, comma = str(value), f"{value:,}"
     forms = [plain, comma, comma] if bare or value < 1000 else [comma, comma]
     if value >= 1000 and value % 500 == 0:
         k = f"{value / 1000:g}"
         forms += [f"{k}k", f"{k}k", f"{k}K", f"{k} k"]
     number = g.pick(forms)
+    if not bare and number.isdigit():
+        # A bare number alone reads as a count or a year ("top 10", "2025"), not money.
+        currency = g.pick(AMOUNT_CURRENCY)
+        return f"{currency} {number}"
     r = g.rng.random()
     if r < 0.3:
         currency = g.pick(AMOUNT_CURRENCY)
@@ -2486,6 +2527,11 @@ def template_ids() -> list[str]:
     return [f"{intent}:{i}" for intent in ASK_INTENTS for i in range(len(TEMPLATES[intent]))]
 
 
+def _is_v4(tid: str) -> bool:
+    intent, i = tid.split(":")
+    return int(i) >= V3_TEMPLATE_COUNTS[intent]
+
+
 def generate(
     n: int,
     seed: int = 0,
@@ -2515,6 +2561,7 @@ def generate(
         ]
         for intent in intents
     }
+    older = {intent: [p for p in pools[intent] if not _is_v4(p[0])] for intent in intents}
     out = []
     for _ in range(n):
         intent = g.pick(intents)
@@ -2522,6 +2569,8 @@ def generate(
         if g.pool is not None and newer[intent] and g.chance(V2_SHARE):
             pool_of = newer[intent]
         tid, template = pool_of[int(g.rng.integers(len(pool_of)))]
+        if older[intent] and _is_v4(tid) and not g.chance(V4_WEIGHT):
+            tid, template = older[intent][int(g.rng.integers(len(older[intent])))]
         text, labels = assemble(_roughen(g, _pieces(g, template), intent))
         out.append(Question(text, labels, ASK_INTENTS.index(intent), tid))
     return out
