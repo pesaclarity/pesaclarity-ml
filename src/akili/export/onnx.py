@@ -77,6 +77,7 @@ def to_onnx(
     example tensor, batch of one), its outputs named ``outputs`` in the order ``forward``
     returns them. Exported in eval mode, without gradients."""
     torch = _torch()
+    require("onnx", "torch")
     was_training = module.training
     module.eval()
     buf = io.BytesIO()

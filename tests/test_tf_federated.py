@@ -15,6 +15,7 @@ from akili.config import (
 )
 from akili.federated.client import CategoriserClient, Consent
 from akili.federated.run import run_federated
+from akili.train.keras_pipeline import KerasBackend
 
 pytestmark = pytest.mark.tf
 
@@ -34,7 +35,7 @@ def test_federated_simulation_learns_without_noise(tmp_path: Path) -> None:
         ),
         tracking=TrackingConfig(enabled=False),
     )
-    result = run_federated(cfg)
+    result = run_federated(cfg, KerasBackend())
     assert result.simulation.eligible_clients == 120
     assert result.accuracy > 0.2
     assert result.exported.path.exists()

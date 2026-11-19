@@ -4,9 +4,10 @@ pesaclarity-app runs its small models in Dart or in rayo, its own runtime, inste
 (pesaclarity/docs, decisions 0019 and 0020). Each such model ships as a `.weights` file: its
 tensors and rayo's graph, in a small format any language can read in a few dozen lines.
 
-Three models have one:
+Four models have one:
 
-- the Ask reader (`ask-reader.weights`, 252,860 bytes, run by rayo or in Dart) and the message
+- the categoriser (`categoriser.weights`, 75,776 bytes), the Ask reader (`ask-reader.weights`,
+  252,860 bytes, run by rayo or in Dart) and the message
   reader (`reader.weights`, about 188 KB, run by rayo), trained in PyTorch and exported through
   ONNX ([below](#from-a-pytorch-model)). They have no TFLite file: the `.weights` file is what
   is scored, budgeted and listed in the manifest;
@@ -140,10 +141,10 @@ The model's manifest carries the file beside the TFLite fields, which stay for p
 The app checks the size and SHA-256 before it reads the weights, and uses its rules instead of
 the model when they do not match or the version is one it does not read.
 
-A model with no TFLite file (the message reader, the Ask reader) has only these fields for its
+A model with no TFLite file (the categoriser, the message reader, the Ask reader) has only these fields for its
 file, with `source` (the ONNX file's name, SHA-256 and size) in place of the TFLite fields, and
-its size budget is on the `.weights` file ([READER.md](READER.md#manifest),
-[ASK.md](ASK.md#the-model-and-its-file)).
+its size budget is on the `.weights` file ([CATEGORISER.md](CATEGORISER.md#the-model-and-its-file),
+[READER.md](READER.md#manifest), [ASK.md](ASK.md#the-model-and-its-file)).
 
 ## The Ask reader on these weights
 
@@ -254,6 +255,15 @@ the module takes `tokens` and `shapes` as two inputs, so its file has the Keras 
 shapes, dtypes and scale axes, and rayo the inputs the app feeds. Its int8 layers move its
 probabilities further from torch's than the message reader's, so it is held to its own
 tolerance ([ASK.md](ASK.md#parity)).
+
+The categoriser is the third ([CATEGORISER.md](CATEGORISER.md)):
+[`akili.model`](../src/akili/model.py) keeps the Keras layer names (`token_embedding`,
+`context_0` .. `context_4`, `hidden`, `category`) and takes the app's one `features` row
+(`[13]`, sliced in the graph). Its file has `token_embedding.table` (int8, one scale) and
+`hidden.kernel` (int8, one scale per output) and keeps the context tables and `category`
+float32, plus one float32 scalar `const` (the masked mean's floor of 1). The DP-SGD noise in
+its token table widens that table's one scale, so it is held to its own tolerance
+([CATEGORISER.md](CATEGORISER.md#parity)).
 
 The TFLite path above stays as it is for the frozen Ask writer.
 

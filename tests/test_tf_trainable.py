@@ -18,7 +18,7 @@ from akili.config import (
 from akili.export.size import ModelTooLargeError
 from akili.export.trainable import WEIGHTS, TrainableRunner, export_trainable, weight_shapes
 from akili.features import encode_batch
-from akili.model import build_categoriser
+from akili.keras_model import build_categoriser
 from akili.synthetic import generate
 
 pytestmark = pytest.mark.tf

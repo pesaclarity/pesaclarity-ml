@@ -3,7 +3,8 @@
 Before any model leaves the server, the spec requires that "a membership-inference audit
 passes". This page says what the audit does, how to run it and how to read its numbers. The
 code is in [`privacy/audit.py`](../src/akili/privacy/audit.py) (metrics, attacks, limits; numpy
-only) and [`privacy/mia.py`](../src/akili/privacy/mia.py) (shadow training; needs `[train]`).
+only) and [`privacy/mia.py`](../src/akili/privacy/mia.py) (shadow training, with the
+categoriser's PyTorch backend: needs `[torch]`; `--keras` audits the Keras model, `[train]`).
 
 Everything runs on synthetic data from [`synthetic.py`](../src/akili/synthetic.py). Never point
 the audit at real messages; when opted-in evaluation data exists it will be audited on the
@@ -20,8 +21,11 @@ DP-SGD bounds this in theory; the audit measures it in practice, against the act
 1. **Candidates.** Up to `audit.max_candidates` (default 2,000) held-out validation examples, the
    non-members, and as many random training examples, the members. Validation holds out whole
    people, so a non-member's transactions were never trained on at all.
-2. **Target scores.** The exported TFLite file, the one that would ship, gives each candidate the
-   probability of its true category. (`audit.score_exported: false` uses the Keras model.)
+2. **Target scores.** The file that would ship, rayo's int8 `categoriser.weights` as rayo runs
+   it (`RAYO_DIR`; without a rayo checkout, rayo-convert's reference of the same int8 graph),
+   gives each candidate the probability of its true category. Each shadow model is exported
+   and scored the same way. (`audit.score_exported: false` uses the float models; `--keras`
+   scores the TFLite files.)
 3. **Shadow models.** `audit.shadow_models` (default 16) models trained exactly like the target,
    with the same config, DP-SGD included, on as many examples as the target saw. Each candidate
    is in the training set of exactly half of them; the rest is filled from the target's other
@@ -44,7 +48,7 @@ DP-SGD bounds this in theory; the audit measures it in practice, against the act
 ## Running it
 
 ```sh
-uv sync --all-extras
+uv sync --extra torch
 
 # Quick: small data, 4 shadow models, under a minute for the pair on a laptop CPU.
 # Too few examples to ever pass; use it to check the attack runs and moves the right way.
@@ -78,22 +82,48 @@ uv run akili gate --evidence release-evidence.json --audit artefacts/<name>/audi
 
 ## Reading the numbers
 
-A full run of the audit pair (2,000 + 2,000 candidates, 16 shadow models, synthetic data):
+A full run of the audit pair (2,000 + 2,000 candidates, 16 shadow models, synthetic data), on
+the PyTorch categoriser's `categoriser.weights` (decision 0023, stage 4; 2026-11-19):
 
 ```text
 audit-no-dp (no DP)
   attack           AUC      AUC 95% CI    adv  TPR@0.1%   TPR@1%           n
+  loss           0.603     0.586-0.621  0.146     0.45%    2.70%  2000+2000
+  lira-online    0.634     0.617-0.651  0.178     2.60%    7.20%  2000+2000
+  lira-offline   0.651     0.634-0.668  0.201     2.65%    6.70%  2000+2000
+  FAIL
+audit-dp-sgd (DP-SGD, epsilon 2.67)
+  attack           AUC      AUC 95% CI    adv  TPR@0.1%   TPR@1%           n
+  loss           0.505     0.487-0.523  0.023     0.20%    1.45%  2000+2000
+  lira-online    0.492     0.474-0.510  0.031     0.05%    0.65%  2000+2000
+  lira-offline   0.512     0.494-0.529  0.024     0.00%    1.10%  2000+2000
+  PASS
+```
+
+The Keras categoriser's TFLite file, with the same data, configs and seeds (2026-11-04,
+reproduced on 2026-11-19 at cb27820):
+
+```text
+audit-no-dp (no DP)
   loss           0.589     0.572-0.607  0.127     0.40%    3.05%  2000+2000
   lira-online    0.615     0.598-0.632  0.152     2.65%    6.55%  2000+2000
   lira-offline   0.607     0.590-0.625  0.144     2.40%    6.40%  2000+2000
   FAIL
 audit-dp-sgd (DP-SGD, epsilon 2.67)
-  attack           AUC      AUC 95% CI    adv  TPR@0.1%   TPR@1%           n
   loss           0.510     0.492-0.528  0.035     0.00%    0.00%  2000+2000
   lira-online    0.509     0.492-0.527  0.036     0.45%    0.80%  2000+2000
   lira-offline   0.504     0.486-0.522  0.030     0.05%    0.60%  2000+2000
   PASS
 ```
+
+The PyTorch model without DP fits the data more closely (validation accuracy 0.928 against
+0.924), and the attacks find more of it: the baseline that shows the audit can see a leak is
+stronger. With DP-SGD both models are at chance: every AUC interval holds 0.5 and every TPR is
+within what a perfectly private model shows by chance at 2,000 per side (95th percentile of the
+worst of the three attacks: AUC 0.519, advantage 0.049, TPR@1% 1.8%, TPR@0.1% 0.5%). Of the
+worst figures over the three attacks, the PyTorch model's AUC (0.512 against 0.510) and TPR@1%
+(1.45% against 0.80%) are higher, its advantage (0.031 against 0.036) and TPR@0.1% (0.20%
+against 0.45%) lower; all are within the app limits and within that chance range.
 
 2,500 synthetic people with 20 transactions each; the DP-SGD run is per person (epsilon 2.67 for
 everything one person contributed). Without DP every attack beats chance, and LiRA picks out
@@ -106,9 +136,11 @@ shows what this data has given up in total:
 
 ```text
 $ uv run akili ledger
-synthetic-14086a5224e1 (user-level): epsilon 10.3 at delta 1e-06 over 17 runs (16 audit, 1 training)
+synthetic-14086a5224e1 (user-level): epsilon 10.4 at delta 1e-06 over 17 runs (16 audit, 1 training)
 ```
 
+(10.3 with dp-accounting; Opacus's RDP at the integer orders gives 10.37 for the same 17
+mechanisms, [DP-SGD-REVIEW.md](DP-SGD-REVIEW.md#the-accountant-opacus-against-dp-accounting).)
 That is fine for synthetic data. On real data, audit the model on a separate stand-in dataset,
 or the audit spends the budget the release needs, and the gate fails on the total.
 
@@ -157,7 +189,7 @@ Why these values:
   percentile of the worst of the three attacks is AUC 0.519, advantage 0.049, TPR@1% 0.018 and
   TPR@0.1% 0.005. The commercial track's tighter advantage and TPR@0.1% limits need 5,000 per
   side, where those fall to 0.030 and 0.003.
-* The no-DP baseline above fails the app limits on AUC (0.615), advantage (0.152) and both TPR
+* The no-DP baseline above fails the app limits on AUC (0.651), advantage (0.201) and both TPR
   limits, so they separate a model that memorises from one that does not.
 * DP theory bounds TPR by e^epsilon x FPR + delta, which is vacuous at the app track's epsilon of
   8, so the TPR limits are empirical, not derived from the budget.

@@ -6,7 +6,7 @@ updates:
       interval: weekly
     groups:
       ml:
-        patterns: ["tensorflow*", "keras*", "mlflow*", "flwr*", "dp-accounting", "torch", "onnx"]
+        patterns: ["tensorflow*", "keras*", "mlflow*", "flwr*", "dp-accounting", "opacus", "torch", "onnx"]
       dev:
         patterns: ["ruff", "mypy", "pytest", "types-*"]
   - package-ecosystem: github-actions

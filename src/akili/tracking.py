@@ -1,4 +1,4 @@
-"""MLflow tracking (needs the [train] extra). Defaults to local files under ./mlruns."""
+"""MLflow tracking (needs the [torch] or [train] extra). Defaults to local files under ./mlruns."""
 
 from __future__ import annotations
 

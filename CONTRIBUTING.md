@@ -10,7 +10,7 @@ public issues.
 ```sh
 uv sync                 # core only, fast
 uv sync --extra train --extra fl   # with TensorFlow, MLflow and Flower
-uv sync --extra torch              # PyTorch (CPU) and onnx, for akili.export.onnx
+uv sync --extra torch              # onnx and MLflow: train and export the PyTorch models
 ```
 
 ## Checks run on your machine
@@ -23,9 +23,10 @@ tool/setup-hooks
 
 The pre-push hook checks that the titles of the commits you push follow Conventional Commits
 (see below), then runs `tool/check`: ruff format and lint, mypy, all tests with the extras, the
-smoke training, DP-SGD, federated and quick-audit runs, mypy and the torch tests in an
-environment with the `[torch]` extra and no TensorFlow (`AKILI_CHECK_TORCH=0` leaves them out),
-and finally mypy and the tests on the core install alone. `tool/check --fast` (format, lint, types and the tests that skip TensorFlow)
+Keras smoke runs (`--keras`), then mypy, the torch tests and the PyTorch smoke training,
+DP-SGD, federated and quick-audit runs in an environment with the `[torch]` extra and no
+TensorFlow (`AKILI_CHECK_TORCH=0` leaves them out),
+and finally mypy and the tests on the core install alone, and `akili accountants --check`. `tool/check --fast` (format, lint, types and the tests that skip TensorFlow)
 is there for running by hand while you work. In an emergency, `git push --no-verify` skips the
 hook; run `tool/check` before the pull request is merged.
 
