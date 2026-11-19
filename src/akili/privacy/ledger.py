@@ -3,7 +3,9 @@
 Each run on the same data spends budget again, so a model's own epsilon understates what the
 data has given up. The ledger keeps one JSON line per run (training, audit shadow models,
 tuning) and composes them all with the RDP accountant. That is tighter than adding the epsilons
-and still a valid bound. Runs are only composed with runs of the same privacy unit.
+and still a valid bound. Runs are only composed with runs of the same privacy unit. Each entry
+keeps its sampling rate, noise multiplier and steps, so totals are recomputed by the current
+accountant (Opacus's RDP), never copied from the epsilons recorded.
 
 The gate checks the dataset's total, not just the release model's epsilon.
 """
@@ -15,10 +17,9 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 
-import dp_accounting
 from pydantic import BaseModel, ConfigDict, Field
 
-from akili.privacy.accounting import RDP_ORDERS, PrivacyReport, PrivacyUnit
+from akili.privacy.accounting import RDP_ACCOUNTANT, PrivacyReport, PrivacyUnit, composed_epsilon
 
 
 class Purpose(StrEnum):
@@ -50,7 +51,7 @@ class BudgetTotal(BaseModel):
     delta: float = Field(gt=0, lt=1)
     population: int = Field(ge=1)
     """The smallest population among the runs, so 1/population is the strictest."""
-    accountant: str = "rdp"
+    accountant: str = RDP_ACCOUNTANT
 
 
 def synthetic_dataset_id(settings_json: str) -> str:
@@ -59,19 +60,11 @@ def synthetic_dataset_id(settings_json: str) -> str:
 
 
 def compose(entries: list[LedgerEntry], delta: float) -> float:
-    """Epsilon at ``delta`` of every entry's mechanism composed together."""
-    accountant = dp_accounting.rdp.RdpAccountant(orders=list(RDP_ORDERS))
-    for e in entries:
-        r = e.report
-        if r.steps == 0:
-            continue
-        if r.noise_multiplier <= 0:
-            return float("inf")
-        event = dp_accounting.PoissonSampledDpEvent(
-            r.sampling_rate, dp_accounting.GaussianDpEvent(r.noise_multiplier)
-        )
-        accountant.compose(event, r.steps)
-    return float(accountant.get_epsilon(delta))
+    """Epsilon at ``delta`` of every entry's mechanism composed together (RDP)."""
+    return composed_epsilon(
+        ((e.report.sampling_rate, e.report.noise_multiplier, e.report.steps) for e in entries),
+        delta,
+    )
 
 
 class Ledger:

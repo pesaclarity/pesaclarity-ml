@@ -1,15 +1,20 @@
 [project]
 name = "akili"
 version = "0.2.0"
-description = "Pesa Clarity on-device transaction categoriser: synthetic data, DP training, federated client, TFLite export and privacy audits."
+description = "Pesa Clarity on-device models: synthetic data, DP training, federated client, export to rayo's weights and privacy audits."
 readme = "README.md"
 license = "AGPL-3.0-only"
 license-files = ["LICENSE"]
 requires-python = ">=3.12,<3.13"
 authors = [{ name = "Pesa Clarity contributors" }]
 dependencies = [
+    # dp-accounting only records the old accountant's figures beside Opacus's
+    # (akili.privacy.reference); removed with TensorFlow (decision 0023, stage 5).
     "dp-accounting>=0.6.0,<0.7",
     "numpy>=1.26,<3",
+    # The privacy accountant (Meta, Apache-2.0): RDP for the gate, PRV for the tighter
+    # figure (decision 0023). It needs torch, which comes from PyTorch's CPU index.
+    "opacus>=1.6,<1.7",
     "pydantic>=2.9,<3",
     "pyyaml>=6.0.2,<7",
     # rayo's model converter, pinned to a rayo commit: the plain weights' graph (docs/WEIGHTS.md).
@@ -27,11 +32,13 @@ train = [
 fl = [
     "flwr>=1.20,<2",
 ]
-# PyTorch on CPU and onnx: the export path the models move to (decision 0023,
-# akili.export.onnx). No TensorFlow.
+# PyTorch on CPU, onnx and MLflow: training and exporting the models that have moved
+# (decision 0023, akili.export.onnx). No TensorFlow. (torch itself is also a core
+# dependency now, through opacus.)
 torch = [
     "torch>=2.6,<2.16",
     "onnx>=1.17,<2",
+    "mlflow>=3.1,<4",
 ]
 
 [project.scripts]
@@ -87,12 +94,21 @@ packages = ["akili"]
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["tensorflow.*", "keras.*", "flwr.*", "mlflow.*", "dp_accounting.*", "torch.*", "onnx.*"]
+module = [
+    "tensorflow.*",
+    "keras.*",
+    "flwr.*",
+    "mlflow.*",
+    "dp_accounting.*",
+    "torch.*",
+    "onnx.*",
+    "opacus.*",
+]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 # tf.function is untyped; these modules wrap it deliberately.
-module = ["akili.train.dp_sgd", "akili.federated.keras_trainer"]
+module = ["akili.train.keras_dp_sgd", "akili.federated.keras_trainer"]
 disallow_untyped_decorators = false
 
 [tool.pytest.ini_options]
@@ -101,7 +117,7 @@ addopts = "-ra --strict-markers"
 markers = [
     "tf: needs the [train] extra (TensorFlow)",
     "fl: needs the [fl] extra (Flower)",
-    "torch: needs the [torch] extra (PyTorch, onnx)",
+    "torch: needs the [torch] extra (onnx and MLflow; PyTorch itself is core)",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning:tensorflow.*",
