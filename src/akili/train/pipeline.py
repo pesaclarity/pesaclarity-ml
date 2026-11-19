@@ -1,32 +1,34 @@
-"""Centralised training pipeline: synthetic data, train (plain or DP-SGD), export, audit, track."""
+"""Centralised training pipeline: synthetic data, train (plain or DP-SGD), export, audit, track.
+
+Written once for any :class:`~akili.train.backend.Backend`: the PyTorch categoriser
+(:mod:`akili.train.torch_backend`, the default) or, with ``backend_for(keras=True)`` until
+TensorFlow is removed, the Keras one (:mod:`akili.train.keras_pipeline`).
+"""
 
 from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import numpy.typing as npt
 
-from akili._optional import require
 from akili.categories import default_categories
 from akili.config import ExperimentConfig
-from akili.export.manifest import TrainableManifest, write_model_manifest
 from akili.export.size import ExportedModel
-from akili.export.tflite import export_tflite
 from akili.features import encode_batch
-from akili.model import build_categoriser
 from akili.privacy.accounting import PrivacyReport, PrivacyUnit, dp_sgd_report
 from akili.privacy.audit import AuditReport
 from akili.privacy.ledger import BudgetTotal, Ledger
 from akili.synthetic import generate
 from akili.tracking import Tracker
-from akili.train.dp_sgd import DPTrainingStats, train_dp_sgd
+from akili.train.backend import Backend, FitOutput, accuracy
+from akili.train.dp_sgd import DPTrainingStats
 
-IntArray = npt.NDArray[np.int32]
+__all__ = ["FitOutput", "TrainResult", "backend_for", "run_centralised"]
 
 
 @dataclass(frozen=True)
@@ -39,14 +41,21 @@ class TrainResult:
     audit: AuditReport | None = None
     budget: BudgetTotal | None = None
     """Everything recorded in the ledger for this data, this run and its audit included."""
+    backend: str = "torch"
+    scores: dict[str, Any] = field(default_factory=dict)
+    """Validation accuracy of the trained model and of the shipped file, and what the export
+    measured (``export``)."""
 
 
-@dataclass(frozen=True)
-class FitOutput:
-    model: Any
-    losses: list[float]
-    """Per-epoch training loss without DP; the final loss only with DP-SGD."""
-    privacy: PrivacyReport | None = None
+def backend_for(keras: bool = False) -> Backend:
+    """The PyTorch backend, or the Keras one (``keras``) until TensorFlow is removed."""
+    if keras:
+        from akili.train.keras_pipeline import KerasBackend
+
+        return KerasBackend()
+    from akili.train.torch_backend import TorchBackend
+
+    return TorchBackend()
 
 
 def split_indices(
@@ -82,37 +91,6 @@ def privacy_report(cfg: ExperimentConfig, stats: DPTrainingStats) -> PrivacyRepo
     return report
 
 
-def fit_categoriser(
-    cfg: ExperimentConfig,
-    x: IntArray,
-    y: IntArray,
-    *,
-    users: npt.ArrayLike,
-    seed: int,
-    n_classes: int,
-    noise_seed: int | None = None,
-) -> FitOutput:
-    """Build and train one categoriser exactly as the config says (plain or DP-SGD).
-
-    ``seed`` sets the starting weights only. DP noise comes from OS entropy unless
-    ``noise_seed`` is given. The membership-inference audit trains its shadow models with this
-    too, so they match the target's training procedure.
-    """
-    keras = require("keras", "train")
-    model = build_categoriser(cfg.features, cfg.model, n_classes, seed=seed)
-    if cfg.dp.enabled:
-        stats = train_dp_sgd(model, x, y, cfg.training, cfg.dp, users=users, noise_seed=noise_seed)
-        return FitOutput(model=model, losses=[stats.final_loss], privacy=privacy_report(cfg, stats))
-    model.compile(
-        optimizer=keras.optimizers.Adam(cfg.training.learning_rate),
-        loss="sparse_categorical_crossentropy",
-    )
-    history = model.fit(
-        x, y, epochs=cfg.training.epochs, batch_size=cfg.training.batch_size, verbose=0
-    )
-    return FitOutput(model=model, losses=[float(v) for v in history.history["loss"]])
-
-
 def _write_budget(
     cfg: ExperimentConfig, ledger: Ledger, privacy: PrivacyReport | None, tracker: Tracker
 ) -> BudgetTotal | None:
@@ -127,13 +105,19 @@ def _write_budget(
 
 
 def run_centralised(
-    cfg: ExperimentConfig, *, progress: Callable[[str], None] | None = None
+    cfg: ExperimentConfig,
+    *,
+    progress: Callable[[str], None] | None = None,
+    backend: Backend | None = None,
 ) -> TrainResult:
-    """Train on synthetic data and write the TFLite model and reports to ``cfg.run_dir``.
+    """Train on synthetic data and write the model that ships and its reports to
+    ``cfg.run_dir``.
 
     With ``cfg.audit.enabled`` the trained model is then attacked (see
     :mod:`akili.privacy.mia`) and ``audit-report.json`` is written next to it.
     """
+    impl = backend or backend_for()
+    say = progress or (lambda _msg: None)
     cats = default_categories()
     txs = generate(cfg.data, cats)
     batch = encode_batch(txs, cfg.features, cats.labels)
@@ -150,10 +134,13 @@ def run_centralised(
     ledger = Ledger(cfg.ledger_path)
 
     with Tracker(cfg.tracking, cfg.name) as tracker:
-        tracker.set_tags({"track": cfg.track.value, "dp": str(cfg.dp.enabled).lower()})
+        tracker.set_tags(
+            {"track": cfg.track.value, "dp": str(cfg.dp.enabled).lower(), "backend": impl.name}
+        )
         tracker.log_params(cfg.flat_params())
 
-        fit = fit_categoriser(
+        say(f"training ({impl.name})")
+        fit = impl.fit(
             cfg,
             x_train,
             y_train,
@@ -175,27 +162,17 @@ def run_centralised(
             for epoch, loss in enumerate(fit.losses):
                 tracker.log_metrics({"train.loss": loss}, step=epoch)
 
-        probs = model.predict(x_val, verbose=0)
-        accuracy = float((probs.argmax(axis=1) == y_val).mean())
-        tracker.log_metrics({"val.accuracy": accuracy})
+        val_accuracy = accuracy(impl.predict(model, x_val), y_val)
+        tracker.log_metrics({"val.accuracy": val_accuracy})
 
-        exported = export_tflite(model, run_dir / "categoriser.tflite", cfg.export)
-        tracker.log_metrics({"model.size_bytes": float(exported.size_bytes)})
-        tracker.log_artifact(exported.path)
-        trainable: TrainableManifest | None = None
-        if cfg.export.trainable:
-            from akili.export.trainable import TRAINABLE_NAME, export_trainable, weight_shapes
-
-            trainable = TrainableManifest(
-                exported=export_trainable(model, run_dir / TRAINABLE_NAME, cfg.export),
-                weight_shapes=weight_shapes(model),
-                fine_tune=cfg.export.fine_tune,
-            )
-            tracker.log_metrics(
-                {"model.trainable_size_bytes": float(trainable.exported.size_bytes)}
-            )
-            tracker.log_artifact(trainable.exported.path)
-        tracker.log_artifact(write_model_manifest(exported, cfg.features, trainable))
+        say("exporting")
+        exported = impl.export(model, cfg, run_dir)
+        tracker.log_metrics(exported.metrics)
+        for path in exported.files:
+            tracker.log_artifact(path)
+        # The same people scored on the file that ships, as the app runs it.
+        shipped_accuracy = accuracy(impl.run_exported(exported.model, x_val), y_val)
+        tracker.log_metrics({"val.accuracy_shipped": shipped_accuracy})
 
         labels_path = run_dir / "labels.json"
         labels_path.write_text(
@@ -215,21 +192,28 @@ def run_centralised(
                 val,
                 users=users,
                 target=model,
-                exported=exported.path,
+                exported=exported.model,
                 epsilon=privacy.epsilon if privacy else None,
                 ledger=ledger,
                 progress=progress,
+                backend=impl,
             )
             audit_path = run_dir / "audit-report.json"
             audit_path.write_text(audit.model_dump_json(indent=2), encoding="utf-8")
             tracker.log_audit(audit)
 
         return TrainResult(
-            accuracy=accuracy,
-            exported=exported,
+            accuracy=val_accuracy,
+            exported=exported.model,
             privacy=privacy,
             run_dir=run_dir,
             run_id=tracker.run_id,
             audit=audit,
             budget=_write_budget(cfg, ledger, privacy, tracker),
+            backend=impl.name,
+            scores={
+                "val_accuracy": val_accuracy,
+                "val_accuracy_shipped": shipped_accuracy,
+                "export": exported.report,
+            },
         )

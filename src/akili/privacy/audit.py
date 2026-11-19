@@ -18,7 +18,7 @@ Two attacks are implemented, both scored from the per-example probability of the
   data that does (IN) or does not (OUT) contain each candidate. The online variant uses both;
   the offline variant uses only OUT shadows.
 
-Training the target and shadow models needs TensorFlow; see :mod:`akili.privacy.mia`.
+Training the target and shadow models is :mod:`akili.privacy.mia`.
 """
 
 from __future__ import annotations

@@ -2,8 +2,9 @@
 # Run the repository's checks on this machine (they used to run in GitHub CI).
 #
 #   tool/check          everything: lint, types, all tests (TensorFlow included),
-#                       smoke training runs, the torch export on its own (no
-#                       TensorFlow), then the core-only install
+#                       the Keras smoke runs, the torch tests and the PyTorch
+#                       smoke runs on their own (no TensorFlow), then the
+#                       core-only install and the accountants' figures
 #   tool/check --fast   format, lint, types and the tests that skip TensorFlow
 #                       (the torch tests run only if the [torch] extra is installed)
 #
@@ -70,14 +71,22 @@ fi
 
 fix_smoke="rerun the command above and read its error; see README.md"
 step "pytest (all, with extras)" "fix the failing tests above" "${run[@]}" pytest
-step "smoke: train" "$fix_smoke" "${run[@]}" akili train --config configs/smoke.yaml
-step "smoke: train DP-SGD" "$fix_smoke" "${run[@]}" akili train --config configs/dp-sgd.yaml
-step "smoke: federated simulation" "$fix_smoke" \
-  "${run[@]}" akili simulate --config configs/federated-smoke.yaml
-# Quick audit runs the attacks end to end; too small to pass, so report only.
-step "quick privacy audit (report only)" "$fix_smoke" \
-  "${run[@]}" akili audit --quick --report-only \
-  --config configs/audit-no-dp.yaml --config configs/audit-dp-sgd.yaml
+# The smoke runs of the Keras categoriser (--keras), kept until TensorFlow is removed; the
+# PyTorch one's run in the [torch] environment below.
+smoke() {
+  local env=$1 label=$2
+  shift 2
+  local r=("${!env}")
+  step "smoke: train$label" "$fix_smoke" "${r[@]}" akili train "$@" --config configs/smoke.yaml
+  step "smoke: train DP-SGD$label" "$fix_smoke" "${r[@]}" akili train "$@" --config configs/dp-sgd.yaml
+  step "smoke: federated simulation$label" "$fix_smoke" \
+    "${r[@]}" akili simulate "$@" --config configs/federated-smoke.yaml
+  # Quick audit runs the attacks end to end; too small to pass, so report only.
+  step "quick privacy audit (report only)$label" "$fix_smoke" \
+    "${r[@]}" akili audit "$@" --quick --report-only \
+    --config configs/audit-no-dp.yaml --config configs/audit-dp-sgd.yaml
+}
+smoke "run[@]" " (Keras)" --keras
 
 # The torch export path (akili.export.onnx) in an environment of its own: core and
 # [torch], no TensorFlow, which the path must not need. rayo's C library runs the
@@ -118,7 +127,8 @@ if [ "${AKILI_CHECK_TORCH:-1}" != 0 ]; then
   step "no TensorFlow with [torch]" "keep TensorFlow out of the [torch] extra" \
     "${torch[@]}" python -c "import importlib.util as u, sys; sys.exit(u.find_spec('tensorflow') is not None)"
   step "mypy (torch extra)" "fix the type errors listed above" "${torch[@]}" mypy
-  step "pytest (torch export)" "fix the failing tests above" "${torch[@]}" pytest -m torch
+  step "pytest (torch)" "fix the failing tests above" "${torch[@]}" pytest -m torch
+  smoke "torch[@]" " (PyTorch)"
 fi
 
 # The core install (no extras) must work on its own. --isolated builds a
@@ -127,6 +137,9 @@ core=(uv run --locked --isolated)
 step "mypy (core install, no extras)" "keep optional extras out of core imports" "${core[@]}" mypy
 step "pytest (core install, no extras)" "keep optional extras out of core code and tests" \
   "${core[@]}" pytest
+step "accountants match accountants.v1.json" \
+  "run 'uv run akili accountants' and say in the pull request why the figures moved" \
+  "${core[@]}" akili accountants --check
 
 echo
 echo "All checks passed."

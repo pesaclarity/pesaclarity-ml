@@ -1,26 +1,13 @@
-"""DP-SGD: clipping and Gaussian noise with Poisson sampling, per person or per example.
+"""Keras DP-SGD (needs the [train] extra), kept for ``--keras`` until TensorFlow is removed
+(decision 0023, stage 5); :mod:`akili.train.torch_dp_sgd` is the loop the categoriser trains with.
 
 tensorflow-privacy is not used because its last release (0.9.0) supports neither Python 3.12 nor
-Keras 3. This is the same algorithm (Abadi et al. 2016) in a small custom loop, and the budget is
-computed with ``dp-accounting``, the accountant tensorflow-privacy itself uses. Revisit if
-tensorflow-privacy ships a compatible release.
-
-With ``unit: user`` (the default) each step samples people, not transactions: every sampled
-person's examples give one gradient (the mean over their examples), which is clipped to the
-norm C before noise is added (McMahan et al. 2018). Adding or removing one person then changes
-the noisy sum by at most C, so the budget covers everything that person contributed. With
-``unit: example`` each transaction is clipped on its own, which protects one transaction only.
-
-Noise and sampling are drawn from operating-system entropy unless ``dp.noise_seed`` is set. The
-entropy-drawn seed is never returned or logged: anyone with it could regenerate the noise and
-remove it. A fixed seed is for reproducible synthetic runs only, and the release gate refuses
-any report that used one.
+Keras 3. This is the same algorithm (Abadi et al. 2016) in a small custom loop. The privacy unit,
+sampling and seeding are described in :mod:`akili.train.dp_sgd`.
 """
 
 from __future__ import annotations
 
-import secrets
-from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -29,53 +16,13 @@ import numpy.typing as npt
 from akili._optional import require
 from akili.config import DPConfig, TrainingConfig
 from akili.privacy.accounting import PrivacyUnit
-
-
-@dataclass(frozen=True)
-class DPTrainingStats:
-    unit: PrivacyUnit
-    population: int
-    """People (user unit) or examples (example unit) that could be sampled."""
-    steps: int
-    """Steps actually taken, counted in the loop; the accountant must be given the same."""
-    sampling_rate: float
-    """Poisson sampling rate actually used; the accountant must be given the same."""
-    mean_batch_size: float
-    """Mean people (user unit) or examples (example unit) per step."""
-    final_loss: float
-    noise_seeded: bool
-    """True when the noise came from ``dp.noise_seed`` rather than OS entropy."""
-
-
-def steps_per_epoch(population: int, per_step: int) -> int:
-    """Must match :func:`akili.privacy.accounting.dp_sgd_report`."""
-    return max(1, round(population / per_step))
-
-
-def group_by_user(users: npt.ArrayLike) -> list[npt.NDArray[np.int64]]:
-    """Row indices of each person's examples, one array per person, in order of first id."""
-    _, first, inverse = np.unique(np.asarray(users), return_index=True, return_inverse=True)
-    rows = np.argsort(inverse, kind="stable").astype(np.int64)
-    groups = np.split(rows, np.cumsum(np.bincount(inverse))[:-1])
-    return [groups[k] for k in np.argsort(first)]
-
-
-def user_rows(
-    groups: list[npt.NDArray[np.int64]],
-    chosen: npt.NDArray[np.int64],
-    cap: int,
-    rng: np.random.Generator,
-) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.float32]]:
-    """Row indices ``[people, length]`` of each chosen person's examples (at most ``cap``,
-    picked at random), padded by repeating their last row, and a mask that is 0 on padding."""
-    rows = [
-        rng.choice(groups[k], size=cap, replace=False) if len(groups[k]) > cap else groups[k]
-        for k in chosen
-    ]
-    length = max(len(r) for r in rows)
-    idx = np.stack([np.pad(r, (0, length - len(r)), mode="edge") for r in rows])
-    mask = np.stack([np.arange(length) < len(r) for r in rows]).astype(np.float32)
-    return idx, mask
+from akili.train.dp_sgd import (
+    DPTrainingStats,
+    group_by_user,
+    noise_seed_or_entropy,
+    steps_per_epoch,
+    user_rows,
+)
 
 
 class _Steps:
@@ -190,8 +137,7 @@ def train_dp_sgd(
         population, per_step = len(x), training.batch_size
     q = min(1.0, per_step / population)
 
-    seeded = noise_seed is not None
-    seed = noise_seed if seeded else secrets.randbits(63)
+    seed, seeded = noise_seed_or_entropy(noise_seed)
     rng = np.random.default_rng(seed)
     steps = _Steps(
         model,
