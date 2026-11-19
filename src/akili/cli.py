@@ -1,6 +1,6 @@
-"""Command line: ``akili synth | vectors | reader-vectors | reader-examples | reader |
-ask-examples | ask-reader | ask-reader-weights | ask-reader-probe | ask-writer |
-ask-writer-weights | epsilon | ledger | gate | train | audit | simulate``."""
+"""Command line: ``akili synth | vectors | fine-tune-vectors | reader-vectors | reader-examples |
+reader | ask-examples | ask-reader | ask-reader-weights | ask-reader-probe | ask-writer |
+ask-writer-weights | epsilon | accountants | ledger | gate | train | audit | simulate``."""
 
 from __future__ import annotations
 
@@ -13,12 +13,11 @@ from pathlib import Path
 from typing import Any
 
 from akili.config import AuditConfig, ExperimentConfig, SyntheticDataConfig, load_config
-from akili.privacy.accounting import PrivacyReport, PrivacyUnit, dp_fedavg_report, dp_sgd_report
+from akili.privacy.accounting import PrivacyReport
 from akili.privacy.audit import AuditReport
 from akili.privacy.gate import evaluate_release, load_evidence
 from akili.privacy.ledger import BudgetTotal, Ledger
 from akili.synthetic import generate, write_jsonl
-from akili.tracks import Track
 from akili.vectors import build_vectors, default_path, render, write_vectors
 
 
@@ -42,6 +41,24 @@ def _vectors(args: argparse.Namespace) -> int:
         print(f"{path} matches the feature code")
         return 0
     print(f"wrote feature test vectors to {write_vectors(path)}")
+    return 0
+
+
+def _fine_tune_vectors(args: argparse.Namespace) -> int:
+    from akili.export import fine_tune
+
+    path = Path(args.out) if args.out else fine_tune.default_path()
+    if args.check:
+        current = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        problems = fine_tune.differences(current, fine_tune.build_vectors())
+        if problems:
+            print(f"{path} is out of date; run `akili fine-tune-vectors`", file=sys.stderr)
+            for p in problems[:10]:
+                print(f"  {p}", file=sys.stderr)
+            return 1
+        print(f"{path} matches the fine-tuning step")
+        return 0
+    print(f"wrote fine-tuning vectors to {fine_tune.write_vectors(path)}")
     return 0
 
 
@@ -318,46 +335,12 @@ def _add_ask_commands(sub: Any) -> None:
     p.set_defaults(func=_ask_writer_weights)
 
 
-def _estimated_eligible_clients(cfg: ExperimentConfig) -> int:
-    n = int(cfg.data.n_users * (1 - cfg.training.validation_fraction))
-    if cfg.track is Track.COMMERCIAL:
-        n = int(n * cfg.data.commercial_opt_in_rate)
-    return max(1, n)
-
-
 def _epsilon(args: argparse.Namespace) -> int:
+    from akili.privacy.compare import planned_report
+
     cfg = load_config(args.config)
-    if cfg.federated is not None:
-        fed = cfg.federated
-        n_clients = args.population or _estimated_eligible_clients(cfg)
-        report = dp_fedavg_report(
-            n_clients=n_clients,
-            clients_per_round=min(fed.clients_per_round, n_clients),
-            rounds=fed.rounds,
-            noise_multiplier=fed.update_noise_multiplier,
-            clip_norm=fed.update_clip_norm,
-            noise_seeded=False,
-            delta=cfg.dp.target_delta,
-        )
-    elif cfg.dp.enabled:
-        users = cfg.dp.unit is PrivacyUnit.USER
-        trained = 1 - cfg.training.validation_fraction
-        n = args.population or int(
-            cfg.data.n_users * trained
-            if users
-            else cfg.data.n_users * trained * cfg.data.transactions_per_user
-        )
-        report = dp_sgd_report(
-            population=n,
-            per_step=cfg.dp.users_per_step if users else cfg.training.batch_size,
-            epochs=cfg.training.epochs,
-            noise_multiplier=cfg.dp.noise_multiplier,
-            l2_norm_clip=cfg.dp.l2_norm_clip,
-            noise_seeded=cfg.dp.noise_seed is not None,
-            unit=cfg.dp.unit,
-            delta=cfg.dp.target_delta,
-        )
-    else:
+    report = planned_report(cfg, args.population)
+    if report is None:
         print(f"{cfg.name}: DP is disabled, so there is no privacy budget", file=sys.stderr)
         return 1
     print(report.model_dump_json(indent=2))
@@ -371,8 +354,37 @@ def _epsilon(args: argparse.Namespace) -> int:
     return 0
 
 
+def _accountants(args: argparse.Namespace) -> int:
+    from akili.privacy import compare
+
+    path = Path(args.out) if args.out else compare.default_path()
+    committed = json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+    configs = Path(args.configs) if args.configs else None
+    if args.check:
+        if committed is None:
+            print(f"{path} does not exist; run `akili accountants`", file=sys.stderr)
+            return 1
+        fresh = compare.build(None, [], committed)
+        problems = compare.mismatches(committed, fresh)
+        if problems:
+            print(f"{path} does not match the accountants:", file=sys.stderr)
+            for p in problems[:20]:
+                print(f"  {p}", file=sys.stderr)
+            return 1
+        print(f"{path} matches the accountants")
+    else:
+        doc = compare.build(configs, [Path(p) for p in args.ledger], committed)
+        path.write_text(compare.render(doc), encoding="utf-8", newline="\n")
+        print(f"wrote the accountants' figures to {path}")
+        committed = doc
+    print(json.dumps(compare.differences(committed), indent=2))
+    return 0
+
+
 def _budget(report: PrivacyReport) -> str:
-    pld = "" if report.epsilon_pld is None else f" (PLD {report.epsilon_pld:.3g})"
+    pld = "" if report.epsilon_pld is None else f" (PRV {report.epsilon_pld:.3g})"
+    if report.epsilon_pld is not None and report.tight_accountant is None:
+        pld = f" (PLD {report.epsilon_pld:.3g})"
     return (
         f"epsilon {report.epsilon:.3g}{pld}, delta {report.delta:.3g} ({report.unit.value}-level)"
     )
@@ -452,8 +464,9 @@ def format_audit(report: AuditReport) -> str:
 
 def _audit(args: argparse.Namespace) -> int:
     from akili.privacy.mia import quick_config
-    from akili.train.pipeline import run_centralised
+    from akili.train.pipeline import backend_for, run_centralised
 
+    backend = backend_for(args.keras)
     reports: list[AuditReport] = []
     for path in args.config:
         cfg = load_config(path)
@@ -471,7 +484,7 @@ def _audit(args: argparse.Namespace) -> int:
         def progress(msg: str, name: str = name) -> None:
             print(f"[{name}] {msg}", file=sys.stderr)
 
-        result = run_centralised(cfg, progress=progress)
+        result = run_centralised(cfg, progress=progress, backend=backend)
         assert result.audit is not None
         reports.append(result.audit)
         print(format_audit(result.audit))
@@ -482,15 +495,25 @@ def _audit(args: argparse.Namespace) -> int:
 
 
 def _train(args: argparse.Namespace) -> int:
-    from akili.train.pipeline import run_centralised
+    from akili.train.pipeline import backend_for, run_centralised
 
     result = run_centralised(
-        load_config(args.config), progress=lambda msg: print(msg, file=sys.stderr)
+        load_config(args.config),
+        progress=lambda msg: print(msg, file=sys.stderr),
+        backend=backend_for(args.keras),
     )
+    shipped = result.scores["val_accuracy_shipped"]
     print(
-        f"val accuracy {result.accuracy:.3f}; model {result.exported.size_bytes} bytes "
-        f"at {result.exported.path}"
+        f"val accuracy {result.accuracy:.3f} ({result.exported.path.name}: {shipped:.3f}); "
+        f"model {result.exported.size_bytes} bytes at {result.exported.path}"
     )
+    parity = result.scores["export"].get("parity")
+    if parity:
+        print(
+            f"int8 against torch: largest difference {parity['max_abs']:.4f} "
+            f"(tolerance {parity['tolerance']}), {parity['labels_same']} of "
+            f"{parity['labels']} labels the same"
+        )
     if result.privacy is not None:
         print(f"privacy budget: {_budget(result.privacy)}")
     if result.budget is not None:
@@ -505,11 +528,13 @@ def _train(args: argparse.Namespace) -> int:
 
 def _simulate(args: argparse.Namespace) -> int:
     from akili.federated.run import run_federated
+    from akili.train.pipeline import backend_for
 
-    result = run_federated(load_config(args.config))
+    result = run_federated(load_config(args.config), backend_for(args.keras))
     report = result.simulation.privacy
     print(
-        f"held-out accuracy {result.accuracy:.3f}; {len(result.simulation.rounds)} rounds; "
+        f"held-out accuracy {result.accuracy:.3f} ({result.exported.path.name}: "
+        f"{result.shipped_accuracy:.3f}); {len(result.simulation.rounds)} rounds; "
         f"{result.simulation.eligible_clients} eligible clients"
     )
     if report is not None:
@@ -525,6 +550,20 @@ def _add_privacy_commands(sub: Any) -> None:
         "--population", type=int, help="people or examples (DP-SGD), or clients (federated)"
     )
     p.set_defaults(func=_epsilon)
+
+    p = sub.add_parser(
+        "accountants",
+        help="dp-accounting's and Opacus's budgets side by side (accountants.v1.json)",
+    )
+    p.add_argument("--out", help="the file (default: the committed one in the package)")
+    p.add_argument("--configs", default="configs", help="the configs whose budgets to compare")
+    p.add_argument(
+        "--ledger", action="append", default=[], help="a recorded privacy ledger to compare"
+    )
+    p.add_argument(
+        "--check", action="store_true", help="fail if the accountants no longer give the file"
+    )
+    p.set_defaults(func=_accountants)
 
     p = sub.add_parser("ledger", help="what every recorded DP run has spent, per dataset")
     p.add_argument(
@@ -563,6 +602,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=_vectors)
 
     p = sub.add_parser(
+        "fine-tune-vectors",
+        help="regenerate the app's vectors for the categoriser's fine-tuning step",
+    )
+    p.add_argument("--out", help="output path (default: the committed file in the package)")
+    p.add_argument("--check", action="store_true", help="fail if the file is out of date")
+    p.set_defaults(func=_fine_tune_vectors)
+
+    p = sub.add_parser(
         "reader-vectors", help="regenerate the message reader test vectors for the app"
     )
     p.add_argument("--out")
@@ -596,13 +643,22 @@ def build_parser() -> argparse.ArgumentParser:
     _add_ask_commands(sub)
     _add_privacy_commands(sub)
 
-    p = sub.add_parser("train", help="centralised training on synthetic data [train]")
+    p = sub.add_parser(
+        "train",
+        help="centralised training on synthetic data; exports categoriser.weights [torch]",
+    )
     p.add_argument("--config", required=True)
+    p.add_argument(
+        "--keras",
+        action="store_true",
+        help="the old Keras categoriser and its TFLite files instead [train]; removed with "
+        "TensorFlow",
+    )
     p.set_defaults(func=_train)
 
     p = sub.add_parser(
         "audit",
-        help="train, then run the membership-inference audit; fails over the limits [train]",
+        help="train, then run the membership-inference audit; fails over the limits [torch]",
     )
     p.add_argument(
         "--config",
@@ -617,10 +673,22 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--report-only", action="store_true", help="exit 0 even when the audit fails (CI smoke)"
     )
+    p.add_argument(
+        "--keras",
+        action="store_true",
+        help="the old Keras categoriser and its TFLite files instead [train]; removed with "
+        "TensorFlow",
+    )
     p.set_defaults(func=_audit)
 
-    p = sub.add_parser("simulate", help="federated simulation on synthetic users [train]")
+    p = sub.add_parser("simulate", help="federated simulation on synthetic users [torch]")
     p.add_argument("--config", required=True)
+    p.add_argument(
+        "--keras",
+        action="store_true",
+        help="the old Keras categoriser and its TFLite files instead [train]; removed with "
+        "TensorFlow",
+    )
     p.set_defaults(func=_simulate)
     return parser
 

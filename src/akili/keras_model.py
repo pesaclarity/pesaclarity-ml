@@ -1,4 +1,5 @@
-"""The categoriser network (needs the [train] extra).
+"""The Keras categoriser network (needs the [train] extra), kept for ``--keras`` until TensorFlow
+is removed (decision 0023, stage 5); :mod:`akili.model` is the PyTorch one that ships.
 
 One int32 input of shape ``[batch, max_tokens + 5]`` (see :mod:`akili.features`) and a softmax
 over the category set's targets. About 70k parameters with the default config, so the TFLite
