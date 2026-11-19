@@ -83,7 +83,6 @@ source = { editable = "." }
 dependencies = [
     { name = "dp-accounting" },
     { name = "numpy" },
-    { name = "opacus" },
     { name = "pydantic" },
     { name = "pyyaml" },
     { name = "rayo-convert", extra = ["tflite"] },
@@ -96,11 +95,13 @@ fl = [
 torch = [
     { name = "mlflow" },
     { name = "onnx" },
+    { name = "opacus" },
     { name = "torch", version = "2.15.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'darwin'" },
     { name = "torch", version = "2.15.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform != 'darwin'" },
 ]
 train = [
     { name = "mlflow" },
+    { name = "opacus" },
     { name = "tensorflow" },
 ]
 
@@ -120,7 +121,8 @@ requires-dist = [
     { name = "mlflow", marker = "extra == 'train'", specifier = ">=3.1,<4" },
     { name = "numpy", specifier = ">=1.26,<3" },
     { name = "onnx", marker = "extra == 'torch'", specifier = ">=1.17,<2" },
-    { name = "opacus", specifier = ">=1.6,<1.7" },
+    { name = "opacus", marker = "extra == 'torch'", specifier = ">=1.6,<1.7" },
+    { name = "opacus", marker = "extra == 'train'", specifier = ">=1.6,<1.7" },
     { name = "pydantic", specifier = ">=2.9,<3" },
     { name = "pyyaml", specifier = ">=6.0.2,<7" },
     { name = "rayo-convert", extras = ["tflite"], git = "https://github.com/pesaclarity/rayo?subdirectory=convert&rev=054c8311619f60b38fed07c8042cf9564e36126f" },

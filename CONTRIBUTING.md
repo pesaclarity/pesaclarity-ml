@@ -8,9 +8,10 @@ public issues.
 ## Setup
 
 ```sh
-uv sync                 # core only, fast
-uv sync --extra train --extra fl   # with TensorFlow, MLflow and Flower
-uv sync --extra torch              # onnx and MLflow: train and export the PyTorch models
+uv sync                 # core only, fast (no PyTorch, so no privacy accounting)
+uv sync --extra train --extra fl   # with TensorFlow, MLflow, Opacus and Flower
+uv sync --extra torch              # PyTorch (CPU), Opacus, onnx and MLflow: train and export
+                                   # the PyTorch models, and the privacy accountant
 ```
 
 ## Checks run on your machine
@@ -26,7 +27,8 @@ The pre-push hook checks that the titles of the commits you push follow Conventi
 Keras smoke runs (`--keras`), then mypy, the torch tests and the PyTorch smoke training,
 DP-SGD, federated and quick-audit runs in an environment with the `[torch]` extra and no
 TensorFlow (`AKILI_CHECK_TORCH=0` leaves them out),
-and finally mypy and the tests on the core install alone, and `akili accountants --check`. `tool/check --fast` (format, lint, types and the tests that skip TensorFlow)
+and finally mypy and the tests on the core install alone (no PyTorch or Opacus), and
+`akili accountants --check` with the extras. `tool/check --fast` (format, lint, types and the tests that skip TensorFlow)
 is there for running by hand while you work. In an emergency, `git push --no-verify` skips the
 hook; run `tool/check` before the pull request is merged.
 

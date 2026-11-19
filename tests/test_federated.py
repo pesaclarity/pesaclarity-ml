@@ -3,6 +3,7 @@ import math
 import numpy as np
 import pytest
 
+from akili._optional import has_module
 from akili.config import ExperimentConfig, FederatedConfig
 from akili.federated.client import CategoriserClient, Consent
 from akili.federated.simulation import CohortTooSmallError, simulate
@@ -15,6 +16,9 @@ from akili.federated.updates import (
     mean_update,
 )
 from akili.tracks import Track
+
+# The privacy accountant, Opacus, is in the [torch] extra (and [train]).
+needs_opacus = pytest.mark.skipif(not has_module("opacus"), reason="needs the [torch] extra")
 
 
 class FakeTrainer:
@@ -117,6 +121,8 @@ def _consents(n: int, commercial_every: int = 0) -> dict[str, Consent]:
     }
 
 
+@pytest.mark.torch
+@needs_opacus
 def test_simulation_moves_towards_clients() -> None:
     cfg = ExperimentConfig(name="sim", federated=FED)
     consents = _consents(200)
@@ -137,6 +143,8 @@ def test_simulation_enforces_cohort_minimum() -> None:
         simulate(cfg, zeros(), _consents(50), lambda cid: pytest.fail("no client should train"))
 
 
+@pytest.mark.torch
+@needs_opacus
 def test_commercial_simulation_only_uses_opted_in_clients() -> None:
     fed = FED.model_copy(update={"min_cohort_size": 1000, "update_noise_multiplier": 1.0})
     cfg = ExperimentConfig(name="sim", track=Track.COMMERCIAL, federated=fed)

@@ -4,9 +4,16 @@ from pathlib import Path
 
 import pytest
 
+from akili._optional import has_module
 from akili.cli import main
 from akili.config import ExperimentConfig
 from akili.export.size import ModelTooLargeError, check_size
+
+# The privacy accountant, Opacus, is in the [torch] extra (and [train]).
+NEEDS_OPACUS = (
+    pytest.mark.torch,
+    pytest.mark.skipif(not has_module("opacus"), reason="needs the [torch] extra"),
+)
 
 
 def test_check_size(tmp_path: Path) -> None:
@@ -27,11 +34,11 @@ def test_cli_synth(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
 @pytest.mark.parametrize(
     ("config", "code"),
     [
-        ("dp-sgd", 0),
-        ("federated-app", 0),
-        ("federated-commercial", 0),
+        pytest.param("dp-sgd", 0, marks=NEEDS_OPACUS),
+        pytest.param("federated-app", 0, marks=NEEDS_OPACUS),
+        pytest.param("federated-commercial", 0, marks=NEEDS_OPACUS),
         ("smoke", 1),
-        ("federated-smoke", 1),
+        pytest.param("federated-smoke", 1, marks=NEEDS_OPACUS),
     ],
 )
 def test_cli_epsilon_checks_track_budget(config: str, code: int) -> None:

@@ -4,7 +4,7 @@
 #   tool/check          everything: lint, types, all tests (TensorFlow included),
 #                       the Keras smoke runs, the torch tests and the PyTorch
 #                       smoke runs on their own (no TensorFlow), then the
-#                       core-only install and the accountants' figures
+#                       core-only install, and the accountants' figures
 #   tool/check --fast   format, lint, types and the tests that skip TensorFlow
 #                       (the torch tests run only if the [torch] extra is installed)
 #
@@ -137,9 +137,11 @@ core=(uv run --locked --isolated)
 step "mypy (core install, no extras)" "keep optional extras out of core imports" "${core[@]}" mypy
 step "pytest (core install, no extras)" "keep optional extras out of core code and tests" \
   "${core[@]}" pytest
+# The accountants need Opacus, which is in the [torch] and [train] extras, not core: the
+# extras' environment has it, and dp-accounting (core) for the old figures.
 step "accountants match accountants.v1.json" \
-  "run 'uv run akili accountants' and say in the pull request why the figures moved" \
-  "${core[@]}" akili accountants --check
+  "run 'uv run --extra torch akili accountants' and say in the pull request why the figures moved" \
+  "${run[@]}" akili accountants --check
 
 echo
 echo "All checks passed."
