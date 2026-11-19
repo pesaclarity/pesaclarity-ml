@@ -112,8 +112,8 @@ the first is the period asked about, the second the one to compare with.
 
 ### Training and scores
 
-`akili ask-reader` (the `[torch]` extra) trains on 120,000 synthetic questions from 834
-templates ([`questions.py`](../src/akili/ask/questions.py)) for 20 epochs and exports
+`akili ask-reader` (the `[torch]` extra) trains on 120,000 synthetic questions from 850
+templates ([`questions.py`](../src/akili/ask/questions.py)) for 30 epochs and exports
 `ask-reader.weights` (int8, with its rayo graph), the ONNX file it was converted from
 (`ask-reader.onnx`), the manifest and `ask-reader-report.json`; every score is of the int8 file
 as rayo's C library runs it (`--rayo-dir` or `RAYO_DIR`, a rayo checkout; without one,
@@ -125,8 +125,9 @@ own, beside the released model, with the same scores). Payee and account holes m
 invented names ([`names.py`](../src/akili/ask/names.py)): Kenyan-sounding words built from
 syllables, business words, "Example"/"Sample"/"Demo" names, banks, wallets and Saccos, one to
 four words, in mixed case; version 4 adds one-word names (a syllable word or an invented word
-that starts with a vowel, "Egizu") and names with plain words in them ("Example Corner", "Golden
-Butchery"), from word lists of their own that no evaluation set's name uses. Each epoch also swaps 70% of the invented payee and account token
+that starts with a vowel, "Egizu"), common first names alone ("kevin") and names with plain
+words in them ("Example Corner", "Golden Butchery"), from word lists of their own that no
+evaluation set's name uses. Each epoch also swaps 70% of the invented payee and account token
 ids (and 3% of the other tokens) for random hash buckets, as an unknown name lands in a bucket
 another word trained, so the reader tags a name from where it sits in the question; the words of
 the well-known names ("Naivas", "KCB", "my mum") keep their ids, so it still knows those.
@@ -137,7 +138,8 @@ The report holds these scores:
   scored on them. `mean_intent_accuracy` and `mean_slot_f1` are on the version 1 templates
   only, with the very questions version 1 was scored on, so they compare across versions;
   `v2` scores the version 2 templates (on the very questions v2 was scored on), `v3` the
-  version 3 ones (on the very questions v3 was scored on) and `v4` the version 4 ones. A fold can run in a process of its own (`fold_scores`, joined by
+  version 3 ones (on the very questions v3 was scored on, but for the Sacco fix of version 4)
+  and `v4` the version 4 ones. A fold can run in a process of its own (`fold_scores`, joined by
   `summarise_folds` in [`reader.py`](../src/akili/ask/reader.py)), which keeps memory down.
 - `hard_held_out` ([`probes.py`](../src/akili/ask/probes.py)): 2,000 questions from 45 templates
   that training never uses, on counts and sums for one payee, "how much to X", money in from
@@ -157,74 +159,85 @@ The report holds these scores:
   cost me"), scored per group as a regression check.
 - `conformance_questions`: the 68 questions of the conformance file, with the reading of each.
 
-| | v1 (dfb9c24) | v2 (d51d5bc) | v3, Keras (#51) | v3, PyTorch (#60) | v4, PyTorch |
-| --- | --- | --- | --- | --- | --- |
-| Unseen v1 templates: intent accuracy | 0.834 | 0.867 | 0.868 | **0.877** | **0.883** |
-| Unseen v1 templates: slot F1 | 0.828 | 0.847 | 0.848 | **0.863** | **0.858** |
-| Unseen v1 templates: payee / category / item F1 | 0.833 / 0.769 / 0.795 | 0.717 / 0.725 / 0.670 | 0.715 / 0.736 / 0.673 | **0.731 / 0.762 / 0.694** | 0.700 / **0.744 / 0.720** |
-| Unseen v1 templates: period / account / amount F1 | 0.881 / 0.693 / 0.469 | 0.960 / 0.820 / 0.806 | 0.957 / 0.806 / 0.894 | **0.960 / 0.870** / 0.838 | **0.968 / 0.859** / 0.845 |
-| Unseen v2 templates: intent accuracy / slot F1 | - | 0.846 / 0.865 | 0.853 / 0.869 | **0.866 / 0.877** | **0.872 / 0.885** |
-| Unseen v3 templates: intent accuracy / slot F1 | - | - | 0.916 / 0.911 | 0.914 / **0.917** | 0.904 / 0.909 |
-| Unseen v4 templates: intent accuracy / slot F1 | - | - | - | - | 0.843 / 0.830 |
-| Hard held-out: intent accuracy | 0.640 | 0.963 | 0.964 | 0.964 | **0.966** |
-| Hard held-out: payee/account exact | 0.110 | 0.926 | 0.926 | **0.938** | **0.937** |
-| Hard held-out: names of unseen words only | 0.013 | 0.872 | 0.885 | **0.893** | **0.901** |
-| App questions: intent accuracy | 0.815 | 0.954 | 1.000 | 0.969 | 1.000 |
-| App questions: payee/account exact | 0.347 | 0.959 | 0.959 | 0.918 | **0.980** |
-| Misses: intent accuracy / all slots exact | - | 0.855 / 0.887 | 0.984 / 0.968 | 0.984 / **0.984** | 0.984 / 0.968 |
-| Conformance questions: intent / all slots exact | 1.000 / 0.882 | 0.985 / 0.941 | 1.000 / 0.971 | 1.000 / 0.971 | 0.985 / 0.971 |
-| Parameters / file bytes | 191,749 / 216,872 (TFLite) | 239,589 / 271,904 (TFLite) | 239,589 / 271,904 (TFLite), 251,276 (`.weights`) | 239,589 / 252,860 (`.weights`) | 239,589 / 252,860 (`.weights`) |
+**Version 4 on the fixed test sets.** Version 4 also stopped the name pools from making the
+app's own test names as Saccos ("Example Sacco" came out of `NamePool.sacco`, which did not
+check `EXCLUDED`, into training and into the version 2 and 3 held-out questions). That changes
+the version 2 and 3 held-out questions and the hard held-out set (version 1's, the app's, the
+misses and the conformance questions are as before), so the version 4 reader is compared with
+the Keras v3 reader on the new sets, like for like: the Keras v3 recipe and templates retrained
+in five folds on the fixed generator for the held-out template rows, and the shipped Keras v3
+TFLite file on the probe sets (the hard held-out set re-scored).
+
+| | v3, Keras (re-scored) | v4, PyTorch (released) | |
+| --- | --- | --- | --- |
+| Unseen v1 templates: intent accuracy / slot F1 | 0.869 / 0.850 | 0.887 / 0.872 | better |
+| Unseen v1 templates: payee / category / item F1 | 0.722 / 0.723 / 0.687 | 0.741 / 0.766 / 0.737 | better |
+| Unseen v1 templates: period / account / amount F1 | 0.957 / 0.830 / 0.864 | 0.968 / 0.870 / 0.888 | better |
+| Unseen v2 templates: intent accuracy / slot F1 | 0.851 / 0.871 | 0.864 / 0.886 | better |
+| Unseen v3 templates: intent accuracy / slot F1 | 0.909 / 0.900 | **0.906** / 0.916 | intent 0.0024 lower |
+| Unseen v4 templates: intent accuracy / slot F1 | - | 0.829 / 0.815 | |
+| Hard held-out: intent / payee/account exact / unseen-word names | 0.964 / 0.928 / 0.884 | 0.969 / 0.943 / 0.914 | better |
+| App questions: intent accuracy / payee/account exact | 1.000 / 0.959 | 1.000 / 1.000 | level / better |
+| Misses: intent accuracy / all slots exact | 0.984 / 0.968 | 0.984 / 0.984 | level / better |
+| Conformance questions: intent / all slots exact | 1.000 / 0.971 | 1.000 / 0.971 | level |
+| Parameters / file bytes | 239,589 / 271,904 (TFLite) | 239,589 / 252,860 (`.weights`) | |
+
+The version 4 reader is level or better on every figure but one: intent on unseen version 3
+templates, 0.906 against 0.909 (0.0024, about 70 of 30,000 questions; six runs of the final
+recipe gave 0.904 to 0.918), which the owner accepted. It reads all 65 of the app's questions'
+intents and all 49 of their names right: "received from Acme" is `received_from` with Acme,
+"Compare my spending at Example Nowhere with last month" is `compare` with the whole name, and
+"Example Nowhere" comes out whole in all its questions. It keeps the four misses v3 fixed, and
+its one miss in the misses set is v3's known one, "what did john cost me" (charges). Amount F1
+is the mean of five folds, one of which holds out a single amount template ("how much did I
+spend on stuff over 1,000", 54 spans): there it is 0.632 (Keras 0.684), on the other four
+folds 0.952 to 0.978. "How many payments over 1000 this month?" still reads "over 1000 this
+month" as one period, as the Keras reader does. The retrained Keras release model scored lower
+on the probe sets than the shipped file (the app's questions 0.954 / 0.898), so the shipped
+file is the one compared there.
+
+On the version 1 to 3 sets as they were before the fix (and so not comparable with the table
+above), the earlier readers scored:
+
+| | v1 (dfb9c24) | v2 (d51d5bc) | v3, Keras (#51) | v3, PyTorch (#60) |
+| --- | --- | --- | --- | --- |
+| Unseen v1 templates: intent accuracy | 0.834 | 0.867 | 0.868 | 0.877 |
+| Unseen v1 templates: slot F1 | 0.828 | 0.847 | 0.848 | 0.863 |
+| Unseen v1 templates: payee / category / item F1 | 0.833 / 0.769 / 0.795 | 0.717 / 0.725 / 0.670 | 0.715 / 0.736 / 0.673 | 0.731 / 0.762 / 0.694 |
+| Unseen v1 templates: period / account / amount F1 | 0.881 / 0.693 / 0.469 | 0.960 / 0.820 / 0.806 | 0.957 / 0.806 / 0.894 | 0.960 / 0.870 / 0.838 |
+| Unseen v2 templates: intent accuracy / slot F1 | - | 0.846 / 0.865 | 0.853 / 0.869 | 0.866 / 0.877 |
+| Unseen v3 templates: intent accuracy / slot F1 | - | - | 0.916 / 0.911 | 0.914 / 0.917 |
+| Hard held-out: intent accuracy | 0.640 | 0.963 | 0.964 | 0.964 |
+| Hard held-out: payee/account exact | 0.110 | 0.926 | 0.926 | 0.938 |
+| Hard held-out: names of unseen words only | 0.013 | 0.872 | 0.885 | 0.893 |
+| App questions: intent accuracy | 0.815 | 0.954 | 1.000 | 0.969 |
+| App questions: payee/account exact | 0.347 | 0.959 | 0.959 | 0.918 |
+| Misses: intent accuracy / all slots exact | - | 0.855 / 0.887 | 0.984 / 0.968 | 0.984 / 0.984 |
+| Conformance questions: intent / all slots exact | 1.000 / 0.882 | 0.985 / 0.941 | 1.000 / 0.971 | 1.000 / 0.971 |
+| Parameters / file bytes | 191,749 / 216,872 (TFLite) | 239,589 / 271,904 (TFLite) | 239,589 / 271,904 (TFLite), 251,276 (`.weights`) | 239,589 / 252,860 (`.weights`) |
 
 The Keras columns score the TFLite file; the PyTorch columns score the int8 `ask-reader.weights`
-on rayo's C library. Bold: better than v3 in Keras. The two PyTorch columns have the same
-network and recipe; v4 adds the version 4 templates and names (see [Versions](#versions)) and
-scores the version 1 to 3 templates on the very questions v3 did.
+on rayo's C library. The v3 PyTorch reader (#60), on the old sets, was below v3 in Keras on
+amount F1 (0.838 against 0.894), v3 intent (0.914 against 0.916) and the app's questions (63 of
+65 intents, 45 of 49 names); version 4 was made for those.
 
-**v4 against v3 in Keras.** Level or better on every figure but five:
-payee F1 on unseen version 1 templates (0.700 against 0.715), amount F1 there (0.845 against
-0.894), unseen version 3 templates (0.904 / 0.909 against 0.916 / 0.911) and the conformance
-file's intents (67 of 68: "what did school fees cost me this year" reads as `fees`, p 0.45). It
-reads all 65 of the app's intents and 48 of its 49 names right (v3 in Keras: 65 and 47; the
-PyTorch v3: 63 and 45): "received from Acme" is `received_from` with Acme, "Compare my spending
-at Example Nowhere with last month" is `compare` with the whole name, and "Example Nowhere"
-comes out whole in all its questions; its one name miss is "How much did Acme send me?", which
-gets the intent but no payee. It keeps the four misses v3 fixed, and misses two of the 62
-misses questions, as v3 in Keras does: "what did john cost me" (charges, v3's known miss) and
-"what did fuel cost me last week" (fuel as a payee). "How many payments over 1000 this month?"
-still reads "over 1000 this month" as one period, as both v3 readers do. Amount F1 is the mean of five
-folds, and one fold holds out a single amount template ("how much did I spend on stuff over
-1,000", 54 spans), on which the PyTorch reader scores 0.32 to 0.64 across runs and the Keras
-reader 0.95; on the other four folds v4 scores 0.919 (Keras 0.881). Four runs of version 4 data
-(below) gave amount F1 between 0.800 and 0.849, so on this measure the gap to Keras is not noise.
-The previous PyTorch column's text follows.
+How version 4 was chosen: sixteen full runs, each deterministic, on the same folds and seeds.
 
-The v3 PyTorch reader is level or better on 21
-of the 25 figures and below on four: amount F1 on unseen version 1 templates (0.838 against
-0.894; amounts are a few hundred spans per fold and swing by several points between runs of
-either trainer), intent on unseen version 3 templates (0.002, 60 of 30,000 questions), and the
-app's questions, where it misreads two of 65 ("received from Acme" as `sent_to`, "Compare my
-spending at Example Nowhere with last month" as `spent`) and marks two more names short
-("Example" for "Example Nowhere", twice) or not at all ("Acme"). It keeps all four of v2's
-misses that v3 fixed ("charges on KCB this month", "how much to john", "what did Naivas cost
-me", "has Otieno paid me", and "has Otieno paid me back" still `lent`), and reads 61 of the 62
-questions of the misses set with every slot right (v3 in Keras: 60). Its one miss is v3's known
-one, "what did john cost me".
-
-How the version 4 data was chosen (four full runs, the same recipe, folds and seeds; each run
-deterministic):
-
-| Run | What changed | v1 payee / category / amount | v3 intent / F1 | app intent / names | misses slots | conformance | parity |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | 71 templates; v4 templates boosted as v2's; one-word plain names | 0.672 / 0.724 / 0.800 | 0.916 / 0.902 | 1.000 / 1.000 | 0.952 | 1.000 / 0.956 | fails (intent p99.9 0.063) |
-| 2 | v4 templates not boosted; no one-word plain names | 0.689 / 0.724 / 0.849 | 0.913 / 0.909 | 1.000 / 1.000 | 0.968 | 1.000 / 0.956 | passes |
-| 3 (released) | no "on" before a name; no year-like bare amounts; amounts after "on goods" | 0.700 / 0.744 / 0.845 | 0.904 / 0.909 | 1.000 / 0.980 | 0.968 | 0.985 / 0.971 | passes |
-| 4 | fewer one-word names; v4 names seldom lower case | 0.710 / 0.749 / 0.828 | 0.929 / 0.915 | 1.000 / 0.959 | 0.968 | 0.985 / 0.956 | fails (one slot label) |
-
-Every run fixed the app's questions; each paid for it elsewhere, and which figures fell short
-moved from run to run (run 4 passed v3 but failed parity, the hard held-out set's intents and
-unseen-word names). The payee F1 on unseen version 1 templates was below Keras' in all four:
-version 4's invented names make the reader tag more words as payees (its precision fell, its
-recall did not), some of them categories.
+- Runs 1 to 4 (the PyTorch v3 recipe, version 4 data): every one fixed the app's questions,
+  and each was short elsewhere: payee F1 on unseen version 1 templates (0.672 to 0.710, the
+  invented names made the reader tag more words as payees, some of them categories), amount F1
+  (0.800 to 0.849) or parity.
+- Runs 5 to 10 (30 epochs; data): a lower-case plain word ("golden") read as a category, so
+  version 4's longer names are seldom lower case; amounts are never bare digits, which read as
+  a count or a year ("top 10 payees" lost the amount fold its precision, "2025" read as an
+  amount); counts ("my 5 biggest payments", "more than 3 times") and repaid loans ("did X pay me
+  back") as look-alikes; version 4 templates drawn at half the weight of the others. Amount F1
+  rose to 0.92, payee F1 above Keras'; parity failed in four of the six, the int8 slots moving
+  up to 0.065 at the 99.9th percentile.
+- Runs 11 to 16 (AdamW with weight decay 0.01; the Sacco fix): parity within its limits in all
+  six, the slots' 99.9th percentile 0.047 to 0.052. One-word first names fixed "hw much to
+  brian" but, mixed into every one-word name, cost the hard held-out set's intents; run 16, the
+  one released, has them only in money-out templates of their own ("how much to kevin").
 
 How the recipe was chosen, on these very folds, seeds and questions (nothing in the data
 changed): the Keras recipe as it is (Adam, cosine decay to 5%, the same dropout and token
@@ -232,8 +245,9 @@ swaps) gave 0.865 / 0.851 on unseen version 1 templates and was below v3 on nine
 among them the app's intents (0.954) and the misses' slots (0.952). Label smoothing of 0.1 on
 both heads lifted every held-out template score (0.878 / 0.868) but cost the probes names and
 the conformance file's intents (0.985); on the intent alone, or with an exponential moving
-average of the weights, it lost "How much to John?" again. Smoothing of 0.05 on both heads,
-released here, kept most of the held-out gain and the probes.
+average of the weights, it lost "How much to John?" again. Smoothing of 0.05 on both heads
+kept most of the held-out gain and the probes; version 4 keeps it, and adds AdamW's weight
+decay (0.01) and 30 epochs.
 Scores are on synthetic questions; real ones will score lower.
 
 On unseen version 1 templates, v1 tagged its few payees, categories and items by heart wherever
@@ -258,7 +272,9 @@ v2's; in PyTorch it is 0.050 higher. The PyTorch reader has the same known misse
 layer and under the same names (`token_embedding`, `shape_embedding`, `conv_1` .. `conv_3`,
 `slot_hidden`, `slot_context`, `slot_span`, `slots`, `intent_hidden`, `intent`), 239,589
 parameters. [`fit`](../src/akili/ask/reader.py) trains it with the Keras trainer's recipe, data
-and token swaps, plus label smoothing of 0.05 on both heads. Each batch runs on its longest
+and token swaps, plus label smoothing of 0.05 on both heads, AdamW's decoupled weight decay of
+0.01 (which keeps the weights small, so the int8 file stays close to torch) and 30 epochs. Each
+batch runs on its longest
 question and the 10 padding tokens after it (`RECEPTIVE_FIELD`: how far a slot output reaches),
 which gives exactly the outputs, loss and gradients of all 96 positions in a third of the time
 (a test checks it). `torch.onnx` (opset 17) exports it and rayo-convert quantises it to int8
@@ -268,7 +284,7 @@ same `layers` list, and rayo's graph with the inputs `tokens` and `shapes` (the 
 two halves, so the graph needs no split) and the outputs `slots`, then `intent`. The graph
 pools with rayo's general ops (`compare`, `reshape`, `reduce`, `mul`, `sub`, `div`,
 `maximum`); rayo's own `masked_reduce` is what the Keras file's graph used. 252,860 bytes,
-against the 400,000-byte budget, which is on this file (SHA-256 `f7424742…`; two runs of
+against the 400,000-byte budget, which is on this file (SHA-256 `1dac0b7b…`; two runs of
 `akili ask-reader` give the same bytes).
 
 `ask-reader-manifest.json` has the weights' four fields and `source` (the ONNX file's name,
@@ -287,31 +303,43 @@ which held for the message reader; the Ask reader moves further, because it has 
 layers (six in a row on the slots' path) and `intent_hidden` quantises one 224-wide row that
 holds both the pooled convolution features and the much smaller mean of the embeddings, with
 one scale. Measured on the released file:
-the intent within 0.042 (99.9% of questions within 0.035), the slots within 0.235 (99.9% of
-tokens within 0.059); 3,193 of the 3,195 intents and 23,793 of the 23,802 tokens' slots are
-torch's, and each of the eleven that are not is a near-tie in torch (its two best within 0.2).
-The v4 file is closer to the slots' limits than v3's was (0.151 and 0.048): of four version 4
-runs, two missed a limit (one the intent's 99.9th percentile, 0.063; one a slot label with a
-clear margin), so a change of data can need a look at the tolerance. The NumPy forward pass
-the Dart reader copies ([`reader_weights.forward`](../src/akili/ask/reader_weights.py)) gives
-rayo's outputs to 2e-7 on the app, misses and conformance questions. On v3's file, rayo at the app's
-pinned commit (21c953e, built without fused multiply-adds) gave the same bits as at this
-repository's; the app's fixtures are re-recorded for each new file.
+the intent within 0.062 (99.9% of questions within 0.039), the slots within 0.090 (99.9% of
+tokens within 0.052); 3,192 of the 3,195 intents and 23,825 of the 23,837 tokens' slots are
+torch's, and each of the fifteen that are not is a near-tie in torch (its two best within 0.2).
+Without weight decay, version 4's data took the slots to the limits (0.06 at the 99.9th
+percentile in half the runs); with it, six runs stayed between 0.047 and 0.052.
+
+The NumPy forward pass the Dart reader copies
+([`reader_weights.forward`](../src/akili/ask/reader_weights.py)) runs as rayo runs the file:
+every activation in float32 and each operation in rayo's order (the int8 layers' finish,
+`bias + float(sum - zero * rowsum) * (scale * weight scale)`, and the pooling's sums, one
+position after another in float32). Every int8 layer so quantises rayo's very inputs, and no
+rounding to int8 falls the other way: the intent matches rayo bit for bit and the slots to
+1e-7 on the app, misses and conformance questions. (Sums in float64 used to give the same to
+about 1e-7 almost always, but on one test model an input sat a float32 ulp from a rounding
+boundary and the slots came out 1.5e-4 apart.) The app's fixtures are re-recorded for each new
+file.
 
 ### Versions
 
-- **v4** (this version): 73 new templates (version 4) for the PyTorch v3 reader's weak
+- **v4** (this version): 89 new templates (version 4) for the PyTorch v3 reader's weak
   patterns: money in from a name in few words ("received from X", "got from X", "was paid by
   X"), with sends to a name as the look-alike; a payee in compare, trend, biggest-payment, debt,
   bill and income-source questions ("compare my spending at X with last month"); one-word names
-  and names with plain words in them ([`names.py`](../src/akili/ask/names.py)); and amounts and
-  amount filters typed many ways ("over 1000", "ksh 2,500 and above", "at least 1.5k", "250 to
-  kshs 2,000") beside periods and names. They are held out in the folds like the others (`v4`
-  in the report) and drawn as often as version 1 templates (versions 2 and 3 keep their boost).
-  Version 1 to 3 templates keep their folds and test questions, and the hard held-out set its
-  names. No version 4 question is an evaluation question and no version 4 name is one the
-  evaluation sets ask about (a test checks both). Same network, recipe, seeds, input, outputs,
-  labels and `ask_schema_version`; the app needs no change beyond the new file.
+  first names alone and names with plain words in them ([`names.py`](../src/akili/ask/names.py));
+  amounts and amount filters typed many ways ("over 1000", "ksh 2,500 and above", "at least
+  1.5k"), never bare digits; and look-alikes: counts ("my 5 biggest payments"), repaid loans
+  ("did X pay me back"), a category where a name could stand ("what did rent cost me"). They are
+  held out in the folds like the others (`v4` in the report) and drawn at half the weight of
+  the others (`V4_WEIGHT`; versions 2 and 3 keep their boost). The name pools no longer make
+  the app's own test names as Saccos ("Example Sacco"), which changes the version 2 and 3
+  held-out questions and the hard held-out set; Keras v3 is re-scored on them. Version 1
+  templates keep their folds and test questions, and version 2 and 3 templates their folds. No
+  version 4 question is an evaluation question and no version 4 name is one the evaluation sets
+  ask about (a test checks both). Recipe: AdamW's weight decay of 0.01 and 30 epochs. The
+  reference forward pass runs in float32 in rayo's order. Same network, seeds, input, outputs,
+  labels and `ask_schema_version`; the app needs no change beyond the new file (and the Dart
+  reader's pooling sums in float32).
 - **v3 in PyTorch** (#60, decision 0023 stage 3): the same network, layer names,
   data, templates, folds and seeds, trained in PyTorch with label smoothing of 0.05 and
   shipped as rayo-convert's int8 file; no TFLite file. `akili ask-reader --keras` trains the
