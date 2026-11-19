@@ -273,7 +273,7 @@ def _add_ask_commands(sub: Any) -> None:
     )
     p.add_argument("--out", default="artefacts/ask-reader")
     p.add_argument("--questions", type=int, default=120_000)
-    p.add_argument("--epochs", type=int, default=20)
+    p.add_argument("--epochs", type=int, default=30)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--skip-evaluation", action="store_true")
     p.add_argument(

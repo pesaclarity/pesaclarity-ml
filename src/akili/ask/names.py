@@ -131,6 +131,9 @@ _FORMS = ["w", "ww", "wb", "wb", "pb", "pw", "tw", "pwb", "wbx", "pwbx", "wwb", 
 QUESTION_WORDS = {"unga", "ebu", "aki", "ati", "ile", "uza", "ya"}
 # Version 4's longer shapes, with c a plain word ("Corner"): "pc" is "Example Corner".
 LONG_FORMS = ["pc", "pc", "cb", "wc", "cw", "cc", "pcb", "ccb", "wcb", "pwc", "tc", "cbx"]
+# Version 4's names are seldom all lower case: a lower-case plain word ("golden", "palm") reads
+# like a category, and the reader learned to take one for a payee.
+V4_CASING = (0.72, 0.82)
 # Version 4's one-word shapes: w a syllable word, v a vowel word. Plain words stay out of
 # one-word names: alone, in lower case, they read like a category ("fuel", "rent").
 SHORT_FORMS = ["w", "v", "v"]
@@ -175,14 +178,18 @@ class NamePool:
     def long_name(self, rng: np.random.Generator) -> str:
         """A name of two to four words with a plain word in it ("Example Corner", "Golden
         Butchery"), cased as :meth:`name` (version 4; needs ``plain``)."""
-        return self._name(rng, LONG_FORMS)
+        return self._name(rng, LONG_FORMS, V4_CASING)
 
     def short_name(self, rng: np.random.Generator) -> str:
         """A one-word name (a syllable word or a vowel word), cased as
         :meth:`name` (version 4; needs ``plain`` and ``vowel_words``)."""
-        return self._name(rng, SHORT_FORMS)
+        return self._name(rng, SHORT_FORMS, V4_CASING)
 
-    def _name(self, rng: np.random.Generator, forms: list[str]) -> str:
+    def _name(
+        self, rng: np.random.Generator, forms: list[str], casing: tuple[float, float] = (0.55, 0.82)
+    ) -> str:
+        """A name of one of ``forms``: as written with the share ``casing[0]``, in lower case up
+        to ``casing[1]``, then upper case or mixed."""
         while True:
             base = self._base(rng, forms)
             lower = base.lower()
@@ -191,9 +198,9 @@ class NamePool:
             if self.own is None or any(w in self.own for w in lower.split()):
                 break
         r = rng.random()
-        if r < 0.55:
+        if r < casing[0]:
             return base
-        if r < 0.82:
+        if r < casing[1]:
             return base.lower()
         if r < 0.9:
             return base.upper()
