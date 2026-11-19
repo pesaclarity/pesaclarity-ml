@@ -129,8 +129,8 @@ def test_field_scores_count_whole_spans() -> None:
 
 
 @pytest.mark.skipif(not has_module("tensorflow"), reason="needs the [train] extra")
-def test_reader_trains_and_exports(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    from akili.reader.train import MANIFEST_FILE, MODEL_FILE, ReaderConfig, train_reader
+def test_keras_reader_trains_and_exports(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    from akili.reader.keras_train import MANIFEST_FILE, MODEL_FILE, ReaderConfig, train_reader
 
     report = train_reader(ReaderConfig(messages=1500, epochs=2), tmp_path, evaluate=False)
     manifest = json.loads((tmp_path / MANIFEST_FILE).read_text())

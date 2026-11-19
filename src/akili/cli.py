@@ -1,23 +1,24 @@
-"""Command line: ``akili synth | vectors | reader-vectors | reader-examples | reader |
-ask-examples | ask-reader | ask-reader-probe | ask-writer | epsilon | ledger | gate | train |
-audit | simulate``."""
+"""Command line: ``akili synth | vectors | fine-tune-vectors | reader-vectors | reader-examples |
+reader | ask-examples | ask-reader | ask-reader-weights | ask-reader-probe | ask-writer |
+ask-writer-weights | epsilon | accountants | ledger | gate | train | audit | simulate``."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from akili._optional import require
 from akili.config import AuditConfig, ExperimentConfig, SyntheticDataConfig, load_config
-from akili.privacy.accounting import PrivacyReport, PrivacyUnit, dp_fedavg_report, dp_sgd_report
+from akili.privacy.accounting import PrivacyReport
 from akili.privacy.audit import AuditReport
 from akili.privacy.gate import evaluate_release, load_evidence
 from akili.privacy.ledger import BudgetTotal, Ledger
 from akili.synthetic import generate, write_jsonl
-from akili.tracks import Track
 from akili.vectors import build_vectors, default_path, render, write_vectors
 
 
@@ -41,6 +42,25 @@ def _vectors(args: argparse.Namespace) -> int:
         print(f"{path} matches the feature code")
         return 0
     print(f"wrote feature test vectors to {write_vectors(path)}")
+    return 0
+
+
+def _fine_tune_vectors(args: argparse.Namespace) -> int:
+    require("torch", "torch")  # torch computes the vectors' reference
+    from akili.export import fine_tune
+
+    path = Path(args.out) if args.out else fine_tune.default_path()
+    if args.check:
+        current = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        problems = fine_tune.differences(current, fine_tune.build_vectors())
+        if problems:
+            print(f"{path} is out of date; run `akili fine-tune-vectors`", file=sys.stderr)
+            for p in problems[:10]:
+                print(f"  {p}", file=sys.stderr)
+            return 1
+        print(f"{path} matches the fine-tuning step")
+        return 0
+    print(f"wrote fine-tuning vectors to {fine_tune.write_vectors(path)}")
     return 0
 
 
@@ -76,18 +96,34 @@ def _reader_examples(args: argparse.Namespace) -> int:
     return 0
 
 
-def _reader(args: argparse.Namespace) -> int:
-    from akili.reader.train import ReaderConfig, train_reader
+def _train_reader(args: argparse.Namespace) -> tuple[dict[str, Any], str]:
+    evaluate = not args.skip_evaluation
+    if args.keras:
+        from akili.reader import keras_train
 
-    cfg = ReaderConfig(messages=args.messages, epochs=args.epochs, seed=args.seed)
-    report = train_reader(cfg, args.out, evaluate=not args.skip_evaluation)
+        cfg = keras_train.ReaderConfig(messages=args.messages, epochs=args.epochs, seed=args.seed)
+        return keras_train.train_reader(cfg, args.out, evaluate=evaluate), keras_train.MODEL_FILE
+    from akili.reader import train
+    from akili.reader.model import WEIGHTS_FILE
+
+    cfg = train.ReaderConfig(messages=args.messages, epochs=args.epochs, seed=args.seed)
+    return train.train_reader(cfg, args.out, evaluate, args.rayo_dir), WEIGHTS_FILE
+
+
+def _reader(args: argparse.Namespace) -> int:
+    report, file_name = _train_reader(args)
     unseen = report["unseen_layouts"]
     if unseen is not None:
         print("unseen layouts, mean F1:")
         for name, f1 in unseen["mean_f1"].items():
             print(f"  {name:<13} {f1:.3f}")
         print(f"  kind accuracy {unseen['mean_kind_accuracy']:.3f}")
-    print(f"reader {report['model_size_bytes']} bytes at {Path(args.out) / 'reader.tflite'}")
+    if "parity" in report:
+        p = report["parity"]
+        f, k = p["fields"]["max_abs"], p["kind"]["max_abs"]
+        print(f"int8 against torch, largest difference: fields {f:.4f}, kind {k:.4f}")
+    size = report.get("weights_size_bytes", report.get("model_size_bytes"))
+    print(f"reader {size} bytes at {Path(args.out) / file_name}")
     return 0
 
 
@@ -106,37 +142,98 @@ def _ask_examples(args: argparse.Namespace) -> int:
     return 0
 
 
-def _ask_reader(args: argparse.Namespace) -> int:
-    from akili.ask.reader import MODEL_FILE, AskReaderConfig, train_ask_reader
+def _train_ask_reader(args: argparse.Namespace) -> tuple[dict[str, Any], str]:
+    from akili.ask.reader import AskReaderConfig
 
     cfg = AskReaderConfig(questions=args.questions, epochs=args.epochs, seed=args.seed)
-    report = train_ask_reader(cfg, args.out, evaluate=not args.skip_evaluation)
+    evaluate = not args.skip_evaluation
+    if args.keras:
+        from akili.ask import keras_reader
+
+        return keras_reader.train_ask_reader(cfg, args.out, evaluate), keras_reader.MODEL_FILE
+    from akili.ask.reader import train_ask_reader
+    from akili.ask.reader_weights import WEIGHTS_FILE
+
+    return train_ask_reader(cfg, args.out, evaluate, args.rayo_dir, args.jobs), WEIGHTS_FILE
+
+
+def _ask_reader(args: argparse.Namespace) -> int:
+    report, file_name = _train_ask_reader(args)
     unseen = report["unseen_templates"]
     if unseen is not None:
         print(f"unseen templates: intent accuracy {unseen['mean_intent_accuracy']:.3f}")
         for name, f1 in unseen["mean_slot_f1"].items():
             print(f"  {name:<9} F1 {f1:.3f}")
+        for key in ("v2", "v3"):
+            if unseen.get(key):
+                v = unseen[key]
+                print(
+                    f"  {key} templates: intent accuracy {v['mean_intent_accuracy']:.3f}, "
+                    f"slot F1 {v['mean_slot_f1']:.3f}"
+                )
     _print_probes(report)
+    if "parity" in report:
+        p = report["parity"]
+        print(
+            "int8 against torch, largest difference: "
+            f"intent {p['intent']['max_abs']:.4f}, slots {p['slots']['max_abs']:.4f}"
+        )
+    size = report.get("weights_size_bytes", report.get("model_size_bytes"))
     print(
-        f"ask reader {report['parameters']} parameters, {report['model_size_bytes']} bytes at "
-        f"{Path(args.out) / MODEL_FILE}"
+        f"ask reader {report['parameters']} parameters, {size} bytes at "
+        f"{Path(args.out) / file_name}"
     )
     return 0
 
 
 def _print_probes(report: dict[str, Any]) -> None:
-    for key in ("hard_held_out", "app_questions"):
+    for key in ("hard_held_out", "app_questions", "misses", "conformance_questions"):
         p = report[key]
         print(
             f"{key}: intent accuracy {p['intent_accuracy']:.3f}, "
-            f"payee/account exact {p['name_exact_match']:.3f} ({p['named_questions']} named)"
+            f"payee/account exact {p['name_exact_match']:.3f} ({p['named_questions']} named), "
+            f"all slots exact {p['all_slots_exact_match']:.3f}"
         )
 
 
-def _ask_reader_probe(args: argparse.Namespace) -> int:
-    from akili.ask.reader import probe_scores
+def _ask_reader_weights(args: argparse.Namespace) -> int:
+    from akili.ask.reader_weights import export_weights
 
-    report = probe_scores(Path(args.model))
+    fields = export_weights(args.model, args.out)
+    out = Path(args.out) if args.out else Path(args.model).parent
+    print(
+        f"ask reader weights, format {fields['weights_format_version']}: "
+        f"{fields['weights_size_bytes']} bytes at {out / fields['weights_file']}"
+    )
+    return 0
+
+
+def _ask_writer_weights(args: argparse.Namespace) -> int:
+    from akili.ask.writer import AskWriterConfig
+    from akili.ask.writer_weights import export_weights
+
+    cfg = AskWriterConfig()
+    fields = export_weights(args.model, args.out, n_layers=cfg.layers, heads=cfg.heads)
+    out = Path(args.out) if args.out else Path(args.model).parent
+    print(
+        f"ask writer weights, format {fields['weights_format_version']}: "
+        f"{fields['weights_size_bytes']} bytes at {out / fields['weights_file']}"
+    )
+    return 0
+
+
+def _ask_reader_probe(args: argparse.Namespace) -> int:
+    model = Path(args.model)
+    if model.suffix == ".tflite":
+        from akili.ask.keras_reader import probe_scores
+
+        report = probe_scores(model)
+    else:
+        from akili.ask.reader import probe_scores as scores_of
+        from akili.ask.reader_weights import run_weights
+
+        rayo = args.rayo_dir if args.rayo_dir is not None else os.environ.get("RAYO_DIR")
+        report = scores_of(run_weights(model.read_bytes(), rayo or None))
     _print_probes(report)
     if args.out:
         Path(args.out).write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
@@ -164,25 +261,63 @@ def _ask_writer(args: argparse.Namespace) -> int:
 
 
 def _add_ask_commands(sub: Any) -> None:
-    """``ask-examples``, ``ask-reader`` and ``ask-writer``."""
+    """``ask-examples``, ``ask-reader``, ``ask-reader-weights``, ``ask-reader-probe``,
+    ``ask-writer`` and ``ask-writer-weights``."""
     p = sub.add_parser("ask-examples", help="regenerate the Ask conformance examples for the app")
     p.add_argument("--out")
     p.add_argument("--check", action="store_true")
     p.set_defaults(func=_ask_examples)
 
-    p = sub.add_parser("ask-reader", help="train and export the ask reader [train]")
+    p = sub.add_parser(
+        "ask-reader", help="train the ask reader and export ask-reader.weights [torch]"
+    )
     p.add_argument("--out", default="artefacts/ask-reader")
     p.add_argument("--questions", type=int, default=120_000)
     p.add_argument("--epochs", type=int, default=20)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--skip-evaluation", action="store_true")
+    p.add_argument(
+        "--jobs",
+        type=int,
+        default=1,
+        help="held-out folds to train at a time, each in a process of its own (the scores "
+        "are the same for any number)",
+    )
+    p.add_argument(
+        "--rayo-dir",
+        default=None,
+        help="a rayo checkout whose C library runs the scores (default: RAYO_DIR; without "
+        "one, rayo-convert's reference runs them)",
+    )
+    p.add_argument(
+        "--keras",
+        action="store_true",
+        help="train the old Keras reader and export ask-reader.tflite instead [train]; "
+        "until TensorFlow is removed",
+    )
     p.set_defaults(func=_ask_reader)
 
     p = sub.add_parser(
-        "ask-reader-probe", help="score an ask-reader.tflite on the hard and app questions [train]"
+        "ask-reader-weights",
+        help="write ask-reader.weights, with its rayo graph, from an ask-reader.tflite",
     )
     p.add_argument("--model", default="artefacts/ask-reader/ask-reader.tflite")
+    p.add_argument("--out", help="folder to write to (default: beside the model)")
+    p.set_defaults(func=_ask_reader_weights)
+
+    p = sub.add_parser(
+        "ask-reader-probe",
+        help="score an ask-reader.weights (or a Keras ask-reader.tflite [train]) on the hard, "
+        "app, misses and conformance questions",
+    )
+    p.add_argument("--model", default="artefacts/ask-reader/ask-reader.weights")
     p.add_argument("--out", help="write the scores and readings as JSON")
+    p.add_argument(
+        "--rayo-dir",
+        default=None,
+        help="a rayo checkout whose C library runs a .weights file (default: RAYO_DIR; "
+        "without one, the NumPy reference the app's Dart reader copies runs it)",
+    )
     p.set_defaults(func=_ask_reader_probe)
 
     p = sub.add_parser("ask-writer", help="train and export the ask writer [train]")
@@ -193,47 +328,21 @@ def _add_ask_commands(sub: Any) -> None:
     p.add_argument("--skip-evaluation", action="store_true")
     p.set_defaults(func=_ask_writer)
 
-
-def _estimated_eligible_clients(cfg: ExperimentConfig) -> int:
-    n = int(cfg.data.n_users * (1 - cfg.training.validation_fraction))
-    if cfg.track is Track.COMMERCIAL:
-        n = int(n * cfg.data.commercial_opt_in_rate)
-    return max(1, n)
+    p = sub.add_parser(
+        "ask-writer-weights",
+        help="write ask-writer.weights, with its rayo graph, from an ask-writer.tflite",
+    )
+    p.add_argument("--model", default="artefacts/ask-writer/ask-writer.tflite")
+    p.add_argument("--out", help="folder to write to (default: beside the model)")
+    p.set_defaults(func=_ask_writer_weights)
 
 
 def _epsilon(args: argparse.Namespace) -> int:
+    from akili.privacy.compare import planned_report
+
     cfg = load_config(args.config)
-    if cfg.federated is not None:
-        fed = cfg.federated
-        n_clients = args.population or _estimated_eligible_clients(cfg)
-        report = dp_fedavg_report(
-            n_clients=n_clients,
-            clients_per_round=min(fed.clients_per_round, n_clients),
-            rounds=fed.rounds,
-            noise_multiplier=fed.update_noise_multiplier,
-            clip_norm=fed.update_clip_norm,
-            noise_seeded=False,
-            delta=cfg.dp.target_delta,
-        )
-    elif cfg.dp.enabled:
-        users = cfg.dp.unit is PrivacyUnit.USER
-        trained = 1 - cfg.training.validation_fraction
-        n = args.population or int(
-            cfg.data.n_users * trained
-            if users
-            else cfg.data.n_users * trained * cfg.data.transactions_per_user
-        )
-        report = dp_sgd_report(
-            population=n,
-            per_step=cfg.dp.users_per_step if users else cfg.training.batch_size,
-            epochs=cfg.training.epochs,
-            noise_multiplier=cfg.dp.noise_multiplier,
-            l2_norm_clip=cfg.dp.l2_norm_clip,
-            noise_seeded=cfg.dp.noise_seed is not None,
-            unit=cfg.dp.unit,
-            delta=cfg.dp.target_delta,
-        )
-    else:
+    report = planned_report(cfg, args.population)
+    if report is None:
         print(f"{cfg.name}: DP is disabled, so there is no privacy budget", file=sys.stderr)
         return 1
     print(report.model_dump_json(indent=2))
@@ -247,8 +356,37 @@ def _epsilon(args: argparse.Namespace) -> int:
     return 0
 
 
+def _accountants(args: argparse.Namespace) -> int:
+    from akili.privacy import compare
+
+    path = Path(args.out) if args.out else compare.default_path()
+    committed = json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+    configs = Path(args.configs) if args.configs else None
+    if args.check:
+        if committed is None:
+            print(f"{path} does not exist; run `akili accountants`", file=sys.stderr)
+            return 1
+        fresh = compare.build(None, [], committed)
+        problems = compare.mismatches(committed, fresh)
+        if problems:
+            print(f"{path} does not match the accountants:", file=sys.stderr)
+            for p in problems[:20]:
+                print(f"  {p}", file=sys.stderr)
+            return 1
+        print(f"{path} matches the accountants")
+    else:
+        doc = compare.build(configs, [Path(p) for p in args.ledger], committed)
+        path.write_text(compare.render(doc), encoding="utf-8", newline="\n")
+        print(f"wrote the accountants' figures to {path}")
+        committed = doc
+    print(json.dumps(compare.differences(committed), indent=2))
+    return 0
+
+
 def _budget(report: PrivacyReport) -> str:
-    pld = "" if report.epsilon_pld is None else f" (PLD {report.epsilon_pld:.3g})"
+    pld = "" if report.epsilon_pld is None else f" (PRV {report.epsilon_pld:.3g})"
+    if report.epsilon_pld is not None and report.tight_accountant is None:
+        pld = f" (PLD {report.epsilon_pld:.3g})"
     return (
         f"epsilon {report.epsilon:.3g}{pld}, delta {report.delta:.3g} ({report.unit.value}-level)"
     )
@@ -328,8 +466,9 @@ def format_audit(report: AuditReport) -> str:
 
 def _audit(args: argparse.Namespace) -> int:
     from akili.privacy.mia import quick_config
-    from akili.train.pipeline import run_centralised
+    from akili.train.pipeline import backend_for, run_centralised
 
+    backend = backend_for(args.keras)
     reports: list[AuditReport] = []
     for path in args.config:
         cfg = load_config(path)
@@ -347,7 +486,7 @@ def _audit(args: argparse.Namespace) -> int:
         def progress(msg: str, name: str = name) -> None:
             print(f"[{name}] {msg}", file=sys.stderr)
 
-        result = run_centralised(cfg, progress=progress)
+        result = run_centralised(cfg, progress=progress, backend=backend)
         assert result.audit is not None
         reports.append(result.audit)
         print(format_audit(result.audit))
@@ -358,15 +497,25 @@ def _audit(args: argparse.Namespace) -> int:
 
 
 def _train(args: argparse.Namespace) -> int:
-    from akili.train.pipeline import run_centralised
+    from akili.train.pipeline import backend_for, run_centralised
 
     result = run_centralised(
-        load_config(args.config), progress=lambda msg: print(msg, file=sys.stderr)
+        load_config(args.config),
+        progress=lambda msg: print(msg, file=sys.stderr),
+        backend=backend_for(args.keras),
     )
+    shipped = result.scores["val_accuracy_shipped"]
     print(
-        f"val accuracy {result.accuracy:.3f}; model {result.exported.size_bytes} bytes "
-        f"at {result.exported.path}"
+        f"val accuracy {result.accuracy:.3f} ({result.exported.path.name}: {shipped:.3f}); "
+        f"model {result.exported.size_bytes} bytes at {result.exported.path}"
     )
+    parity = result.scores["export"].get("parity")
+    if parity:
+        print(
+            f"int8 against torch: largest difference {parity['max_abs']:.4f} "
+            f"(tolerance {parity['tolerance']}), {parity['labels_same']} of "
+            f"{parity['labels']} labels the same"
+        )
     if result.privacy is not None:
         print(f"privacy budget: {_budget(result.privacy)}")
     if result.budget is not None:
@@ -381,11 +530,13 @@ def _train(args: argparse.Namespace) -> int:
 
 def _simulate(args: argparse.Namespace) -> int:
     from akili.federated.run import run_federated
+    from akili.train.pipeline import backend_for
 
-    result = run_federated(load_config(args.config))
+    result = run_federated(load_config(args.config), backend_for(args.keras))
     report = result.simulation.privacy
     print(
-        f"held-out accuracy {result.accuracy:.3f}; {len(result.simulation.rounds)} rounds; "
+        f"held-out accuracy {result.accuracy:.3f} ({result.exported.path.name}: "
+        f"{result.shipped_accuracy:.3f}); {len(result.simulation.rounds)} rounds; "
         f"{result.simulation.eligible_clients} eligible clients"
     )
     if report is not None:
@@ -401,6 +552,20 @@ def _add_privacy_commands(sub: Any) -> None:
         "--population", type=int, help="people or examples (DP-SGD), or clients (federated)"
     )
     p.set_defaults(func=_epsilon)
+
+    p = sub.add_parser(
+        "accountants",
+        help="dp-accounting's and Opacus's budgets side by side (accountants.v1.json)",
+    )
+    p.add_argument("--out", help="the file (default: the committed one in the package)")
+    p.add_argument("--configs", default="configs", help="the configs whose budgets to compare")
+    p.add_argument(
+        "--ledger", action="append", default=[], help="a recorded privacy ledger to compare"
+    )
+    p.add_argument(
+        "--check", action="store_true", help="fail if the accountants no longer give the file"
+    )
+    p.set_defaults(func=_accountants)
 
     p = sub.add_parser("ledger", help="what every recorded DP run has spent, per dataset")
     p.add_argument(
@@ -439,6 +604,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=_vectors)
 
     p = sub.add_parser(
+        "fine-tune-vectors",
+        help="regenerate the app's vectors for the categoriser's fine-tuning step [torch]",
+    )
+    p.add_argument("--out", help="output path (default: the committed file in the package)")
+    p.add_argument("--check", action="store_true", help="fail if the file is out of date")
+    p.set_defaults(func=_fine_tune_vectors)
+
+    p = sub.add_parser(
         "reader-vectors", help="regenerate the message reader test vectors for the app"
     )
     p.add_argument("--out")
@@ -450,24 +623,44 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--check", action="store_true")
     p.set_defaults(func=_reader_examples)
 
-    p = sub.add_parser("reader", help="train and export the message reader [train]")
+    p = sub.add_parser("reader", help="train the message reader and export reader.weights [torch]")
     p.add_argument("--out", default="artefacts/reader")
     p.add_argument("--messages", type=int, default=30_000)
     p.add_argument("--epochs", type=int, default=8)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--skip-evaluation", action="store_true")
+    p.add_argument(
+        "--rayo-dir",
+        default=None,
+        help="a rayo checkout whose C library runs the scores (default: RAYO_DIR; without "
+        "one, rayo-convert's reference runs them)",
+    )
+    p.add_argument(
+        "--keras",
+        action="store_true",
+        help="the old Keras reader and reader.tflite instead [train]; removed with TensorFlow",
+    )
     p.set_defaults(func=_reader)
 
     _add_ask_commands(sub)
     _add_privacy_commands(sub)
 
-    p = sub.add_parser("train", help="centralised training on synthetic data [train]")
+    p = sub.add_parser(
+        "train",
+        help="centralised training on synthetic data; exports categoriser.weights [torch]",
+    )
     p.add_argument("--config", required=True)
+    p.add_argument(
+        "--keras",
+        action="store_true",
+        help="the old Keras categoriser and its TFLite files instead [train]; removed with "
+        "TensorFlow",
+    )
     p.set_defaults(func=_train)
 
     p = sub.add_parser(
         "audit",
-        help="train, then run the membership-inference audit; fails over the limits [train]",
+        help="train, then run the membership-inference audit; fails over the limits [torch]",
     )
     p.add_argument(
         "--config",
@@ -482,10 +675,22 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--report-only", action="store_true", help="exit 0 even when the audit fails (CI smoke)"
     )
+    p.add_argument(
+        "--keras",
+        action="store_true",
+        help="the old Keras categoriser and its TFLite files instead [train]; removed with "
+        "TensorFlow",
+    )
     p.set_defaults(func=_audit)
 
-    p = sub.add_parser("simulate", help="federated simulation on synthetic users [train]")
+    p = sub.add_parser("simulate", help="federated simulation on synthetic users [torch]")
     p.add_argument("--config", required=True)
+    p.add_argument(
+        "--keras",
+        action="store_true",
+        help="the old Keras categoriser and its TFLite files instead [train]; removed with "
+        "TensorFlow",
+    )
     p.set_defaults(func=_simulate)
     return parser
 

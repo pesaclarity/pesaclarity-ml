@@ -2,7 +2,7 @@
 
 Wraps :class:`CategoriserClient` as a Flower ``NumPyClient`` and ``ClientApp``. The matching
 ``ServerApp`` and strategy (FedAvg with secure aggregation and cohort minimums) live in
-pesaclarity-backend; the phone runs the same logic in Dart/TFLite. This adapter exists for
+pesaclarity-backend; the phone runs the same logic in Dart. This adapter exists for
 simulation and for testing the protocol against the real aggregator.
 """
 

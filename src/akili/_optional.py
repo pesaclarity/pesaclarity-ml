@@ -1,4 +1,4 @@
-"""Helpers for the optional [train] and [fl] extras."""
+"""Helpers for the optional extras ([torch], [train], [fl])."""
 
 from __future__ import annotations
 

@@ -1,4 +1,9 @@
-"""Federated simulation on synthetic users with the Keras trainer (needs the [train] extra)."""
+"""Federated simulation on synthetic users, with the PyTorch trainer (or, given the Keras
+backend, the Keras one until TensorFlow is removed).
+
+The weights go between the simulated server and its clients as NumPy arrays in Keras' order and
+layout, as between pesaclarity-backend's aggregator and the phones
+(:meth:`akili.train.backend.Backend.get_weights`), whichever framework trains them."""
 
 from __future__ import annotations
 
@@ -10,16 +15,13 @@ import numpy as np
 
 from akili.categories import default_categories
 from akili.config import ExperimentConfig
-from akili.export.manifest import write_model_manifest
 from akili.export.size import ExportedModel
-from akili.export.tflite import export_tflite
 from akili.features import encode_batch
 from akili.federated.client import CategoriserClient, Consent
-from akili.federated.keras_trainer import KerasTrainer, SharedKerasModel
 from akili.federated.simulation import SimulationResult, simulate
-from akili.model import build_categoriser
 from akili.synthetic import commercial_opt_ins, generate
 from akili.tracking import Tracker
+from akili.train.backend import Backend, accuracy
 from akili.types import Transaction
 
 
@@ -29,10 +31,16 @@ class FederatedRunResult:
     accuracy: float
     exported: ExportedModel
     run_dir: Path
+    shipped_accuracy: float | None = None
+    """Held-out accuracy of the file that ships, as the app runs it."""
+    backend: str = "torch"
 
 
-def run_federated(cfg: ExperimentConfig) -> FederatedRunResult:
+def run_federated(cfg: ExperimentConfig, backend: Backend | None = None) -> FederatedRunResult:
     """Simulate federated training; held-out synthetic users measure accuracy."""
+    from akili.train.pipeline import backend_for
+
+    impl = backend or backend_for()
     if cfg.federated is None:
         raise ValueError("config has no federated section")
     fed = cfg.federated
@@ -51,28 +59,30 @@ def run_federated(cfg: ExperimentConfig) -> FederatedRunResult:
     consents = {
         u: Consent(improve_app=True, contribute_licensed_models=u in opted_in) for u in train_users
     }
-    model = build_categoriser(cfg.features, cfg.model, len(cats.labels), seed=cfg.seed)
-    shared = SharedKerasModel(model)
+    model = impl.new_model(cfg, len(cats.labels), cfg.seed)
+    trainer_for = impl.local_trainer(model)
     encoded = {u: encode_batch(by_user[u], cfg.features, cats.labels) for u in train_users}
 
     def make_client(cid: str) -> CategoriserClient:
         data = encoded[cid]
         seed = int(rng.integers(1 << 31))
-        trainer = KerasTrainer(shared, data.features, data.labels, seed=seed)
+        trainer = trainer_for(data.features, data.labels, seed)
         return CategoriserClient(trainer, consents[cid], fed, seed=seed)
 
     run_dir = cfg.run_dir
     run_dir.mkdir(parents=True, exist_ok=True)
     with Tracker(cfg.tracking, cfg.name) as tracker:
-        tracker.set_tags({"track": cfg.track.value, "mode": "federated-simulation"})
+        tracker.set_tags(
+            {"track": cfg.track.value, "mode": "federated-simulation", "backend": impl.name}
+        )
         tracker.log_params(cfg.flat_params())
-        sim = simulate(cfg, model.get_weights(), consents, make_client)
+        sim = simulate(cfg, impl.get_weights(model), consents, make_client)
         for log in sim.rounds:
             tracker.log_metrics(
                 {"round.participants": log.participants, "round.update_norm": log.mean_update_norm},
                 step=log.round,
             )
-        model.set_weights(sim.weights)
+        impl.set_weights(model, sim.weights)
         if sim.privacy is not None:
             tracker.log_privacy(sim.privacy)
             (run_dir / "privacy-report.json").write_text(
@@ -82,11 +92,24 @@ def run_federated(cfg: ExperimentConfig) -> FederatedRunResult:
         held = encode_batch(
             [tx for u in sorted(holdout) for tx in by_user[u]], cfg.features, cats.labels
         )
-        probs = model.predict(held.features, verbose=0)
-        accuracy = float((probs.argmax(axis=1) == held.labels).mean())
-        tracker.log_metrics({"val.accuracy": accuracy})
-        exported = export_tflite(model, run_dir / "categoriser.tflite", cfg.export)
-        tracker.log_artifact(exported.path)
-        tracker.log_artifact(write_model_manifest(exported, cfg.features))
+        val_accuracy = accuracy(impl.predict(model, held.features), held.labels)
+        tracker.log_metrics({"val.accuracy": val_accuracy})
+        # The federated model is not fine-tuned on the phone from this export.
+        export_cfg = cfg.model_copy(
+            update={"export": cfg.export.model_copy(update={"trainable": False})}
+        )
+        exported = impl.export(model, export_cfg, run_dir)
+        tracker.log_metrics(exported.metrics)
+        for path in exported.files:
+            tracker.log_artifact(path)
+        shipped_accuracy = accuracy(impl.run_exported(exported.model, held.features), held.labels)
+        tracker.log_metrics({"val.accuracy_shipped": shipped_accuracy})
 
-    return FederatedRunResult(simulation=sim, accuracy=accuracy, exported=exported, run_dir=run_dir)
+    return FederatedRunResult(
+        simulation=sim,
+        accuracy=val_accuracy,
+        exported=exported.model,
+        run_dir=run_dir,
+        shipped_accuracy=shipped_accuracy,
+        backend=impl.name,
+    )

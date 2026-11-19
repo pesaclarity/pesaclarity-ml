@@ -1,19 +1,23 @@
 #!/usr/bin/env bash
 # Check that commit titles follow Conventional Commits (this replaced the
-# "PR title" workflow). Release notes and versions come from these titles.
+# "PR title" workflow). Release notes and versions come from these titles, and
+# pull requests are rebase-merged, so each commit lands on dev as is:
+# fixup!/squash!/amend! titles fail the pattern on purpose.
 #
 #   tool/commit-titles <rev-range>     e.g. tool/commit-titles origin/dev..HEAD
 #
-# Merge commits are skipped. The pre-push hook calls this for pushed commits.
+# Merge commits are skipped and git's own revert titles pass. The pre-push hook calls this for pushed commits.
 set -euo pipefail
 
 types="feat|fix|perf|refactor|docs|test|build|ci|chore|revert|style"
 pattern="^($types)(\([a-z0-9-]+\))?!?: [^ ].*$"
+# git revert's own titles, nested too (Revert "Revert "...""); release-please reads them.
+revert='^Revert ".+"$'
 
 bad=0
 while IFS= read -r line; do
   sha=${line%% *} title=${line#* }
-  if [[ ! "$title" =~ $pattern ]]; then
+  if [[ ! "$title" =~ $pattern && ! "$title" =~ $revert ]]; then
     echo "Bad commit title: ${sha:0:9} $title" >&2
     bad=1
   fi
@@ -23,5 +27,7 @@ if [ "$bad" -ne 0 ]; then
   echo "Start each title with a type, e.g. 'feat: add debts screen', 'fix: keep footers out of rows'" >&2
   echo "or 'feat!: change the backup format'. Types: ${types//|/, }." >&2
   echo "Reword with 'git commit --amend' (last commit) or 'git rebase -i'." >&2
+  echo "Pull requests are rebase-merged, so instead of a fixup!/squash!/amend! commit write a" >&2
+  echo "Conventional Commit, e.g. 'refactor: name the layout rules'." >&2
   exit 1
 fi

@@ -15,13 +15,15 @@ Copy this list into the release issue and fill it in.
 - Category set version (`labels.json`):
 - Feature schema version (`model-manifest.json`):
 - MLflow run id:
-- TFLite SHA-256:
-- Trainable TFLite SHA-256 (`categoriser-train.tflite`):
+- Weights SHA-256 (`categoriser.weights`, `model-manifest.json`'s `weights_sha256`), and the
+  ONNX file's (`source.sha256`):
+- Fine-tuning spec version (`fine_tune.spec_version`):
 
 ## Privacy (checked by the gate)
 
 - [ ] Trained with DP-SGD (or DP-FedAvg); `privacy-report.json` attached.
-- [ ] Privacy budget published: epsilon = ___, delta = ___, unit, accountant, noise
+- [ ] Privacy budget published: epsilon = ___, delta = ___, unit, accountant (`opacus-rdp`;
+      the tighter `epsilon_pld` from `opacus-prv`), noise
       multiplier, clip norm, sampling rate and steps.
 - [ ] The unit is `user`: the budget covers everything one person contributed, not one
       transaction.
@@ -48,9 +50,12 @@ Copy this list into the release issue and fill it in.
 
 ## Shipping
 
-- [ ] TFLite file within the size budget for 2 GB RAM phones (gate checks
-      `model_size_bytes` against `max_model_size_bytes`).
-- [ ] TFLite output matches the Keras model on a synthetic sample.
+- [ ] The model file within the size budget for 2 GB RAM phones (gate checks
+      `model_size_bytes` against `max_model_size_bytes`; for the categoriser,
+      `categoriser.weights`).
+- [ ] A model exported from PyTorch (the categoriser, the message reader, the Ask reader): its `.weights`
+      file within the budget, and rayo's int8 file within the model's tolerance of the torch model, with the
+      same labels (`parity` in its report).
 - [ ] Model file signed (Ed25519) with the release key held outside this repository; the app
       verifies the signature before use.
 - [ ] App track: weights published under CC BY-SA 4.0 with the credit line, privacy report and
@@ -80,7 +85,7 @@ attack's result or a list of them; `akili gate --evidence <file> --audit audit-r
   "secure_aggregation": true,
   "dpia_filed": true,
   "legal_review": false,
-  "model_size_bytes": 81720,
+  "model_size_bytes": 75776,
   "max_model_size_bytes": 512000
 }
 ```

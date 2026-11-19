@@ -8,8 +8,10 @@ public issues.
 ## Setup
 
 ```sh
-uv sync                 # core only, fast
-uv sync --all-extras    # with TensorFlow, MLflow and Flower
+uv sync                 # core only, fast (no PyTorch, so no privacy accounting)
+uv sync --extra train --extra fl   # with TensorFlow, MLflow, Opacus and Flower
+uv sync --extra torch              # PyTorch (CPU), Opacus, onnx and MLflow: train and export
+                                   # the PyTorch models, and the privacy accountant
 ```
 
 ## Checks run on your machine
@@ -22,8 +24,11 @@ tool/setup-hooks
 
 The pre-push hook checks that the titles of the commits you push follow Conventional Commits
 (see below), then runs `tool/check`: ruff format and lint, mypy, all tests with the extras, the
-smoke training, DP-SGD, federated and quick-audit runs, and finally mypy and the tests on the
-core install alone. `tool/check --fast` (format, lint, types and the tests that skip TensorFlow)
+Keras smoke runs (`--keras`), then mypy, the torch tests and the PyTorch smoke training,
+DP-SGD, federated and quick-audit runs in an environment with the `[torch]` extra and no
+TensorFlow (`AKILI_CHECK_TORCH=0` leaves them out),
+and finally mypy and the tests on the core install alone (no PyTorch or Opacus), and
+`akili accountants --check` with the extras. `tool/check --fast` (format, lint, types and the tests that skip TensorFlow)
 is there for running by hand while you work. In an emergency, `git push --no-verify` skips the
 hook; run `tool/check` before the pull request is merged.
 
@@ -49,8 +54,14 @@ hook; run `tool/check` before the pull request is merged.
 - Small, focused pull requests against `dev`: one topic each, with tests for new behaviour and
   a passing `tool/check`. `main` takes only `dev` and release pull requests (see
   [Branches and releases](README.md#branches-and-releases)).
-- Pull request titles follow [Conventional Commits](https://www.conventionalcommits.org):
-  `feat: add a Sacco layout`, `fix: …`, `feat!: …` for a breaking change. They set the next
-  version and the changelog.
-- Commit messages: one short line in the same form, e.g. `feat: add a Sacco layout`. The
-  pre-push hook checks them (`tool/commit-titles origin/dev..HEAD` checks by hand).
+- Every commit follows [Conventional Commits](https://www.conventionalcommits.org): one short
+  line such as `feat: add a Sacco layout`, `fix: …`, `feat!: …` for a breaking change. Pull
+  requests into `dev` are rebase-merged, so each commit lands on `dev` as is and the commits set
+  the next version and the changelog. The pre-push hook checks them; it also
+  accepts git's own `Revert "…"` titles and skips merge commits
+  (`tool/commit-titles origin/dev..HEAD` checks by hand).
+- Changes users can see are `feat` or `fix`. Review follow-ups they don't see use a hidden type
+  (`refactor`, `test`, `style`, `chore`, `docs`, `ci`, `build`) so the changelog stays clean.
+  Write them as new commits: pushed history is never rewritten, so no `fixup!`, `squash!` or
+  `amend!` commits.
+- One logical change per commit.

@@ -1,3 +1,4 @@
+import hashlib
 import json
 
 import numpy as np
@@ -71,6 +72,18 @@ def test_version_1_folds_and_questions_are_unchanged() -> None:
     v1 = questions.v1_template_ids()
     assert [f & v1 for f in questions.folds(5)] == old
     assert len(v1) == 626 < len(questions.template_ids())
+    # Version 2 templates keep the folds they had before version 3 (a second permutation per
+    # intent, from a random fold).
+    rng = np.random.default_rng(1)
+    for intent in ASK_INTENTS:
+        first = questions.V1_TEMPLATE_COUNTS[intent]
+        order = rng.permutation(questions.V2_TEMPLATE_COUNTS[intent] - first)
+        start = int(rng.integers(5))
+        for j, i in enumerate(order):
+            old[(start + j) % 5].add(f"{intent}:{first + int(i)}")
+    v2 = questions.v2_template_ids()
+    assert [f & (v1 | v2) for f in questions.folds(5)] == old
+    assert len(v1 | v2) == 724 < len(questions.template_ids())
     # Without a name pool, version 1 templates use the version 1 lists only.
     for q in questions.generate(300, seed=4, templates=v1):
         assert q.template in v1
@@ -119,6 +132,12 @@ def test_probe_sets() -> None:
     s = probes.score_probe(app, intents, perfect, None)
     assert s["intent_accuracy"] == 1.0
     assert s["name_exact_match"] == 1.0
+
+    misses = probes.miss_questions()
+    assert {g for g, _ in misses} == {"fees_on", "how_much_to", "cost_me", "paid_me", "contrast"}
+    assert all(len(q.slots) == len(tokenise(q.text)) for _, q in misses)
+    conformance = probes.conformance_questions()
+    assert len(conformance) == len(examples.build_examples()["questions"])
 
 
 def test_reader_input_is_the_message_reader_encoding() -> None:
@@ -229,14 +248,14 @@ def test_writer_targets_mask_the_facts() -> None:
 @pytest.mark.tf
 @needs_tf
 def test_ask_reader_trains_and_exports(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    from akili.ask.reader import (
+    from akili.ask.keras_reader import (
         MANIFEST_FILE,
         MODEL_FILE,
-        AskReaderConfig,
         build_ask_reader,
         run_tflite,
         train_ask_reader,
     )
+    from akili.ask.reader import AskReaderConfig
 
     cfg = AskReaderConfig(questions=1500, epochs=1)
     assert build_ask_reader(cfg).count_params() <= 300_000
@@ -252,8 +271,40 @@ def test_ask_reader_trains_and_exports(tmp_path) -> None:  # type: ignore[no-unt
     assert intent.shape == (8, len(ASK_INTENTS))
     assert slots.shape == (8, MAX_TOKENS, len(SLOT_LABELS))
     np.testing.assert_allclose(intent.sum(-1), 1.0, atol=1e-3)
-    assert {"hard_held_out", "app_questions"} <= set(report)
+    assert {"hard_held_out", "app_questions", "misses", "conformance_questions"} <= set(report)
     assert len(report["app_questions"]["readings"]) == len(probes.app_questions())
+
+    # The plain weights are the TFLite file's, and give TFLite's outputs. TFLite's own kernels
+    # (XNNPACK and the built-in ones) differ from each other by a few 1e-4 on this barely
+    # trained model, where an int8 rounding falls the other way.
+    from akili.ask.reader_weights import WEIGHTS_FILE, export_weights, forward, required_tensors
+    from akili.export.weights import read_weights
+
+    blob = (tmp_path / WEIGHTS_FILE).read_bytes()
+    assert manifest["weights_file"] == WEIGHTS_FILE
+    assert manifest["weights_size_bytes"] == len(blob)
+    assert manifest["weights_sha256"] == hashlib.sha256(blob).hexdigest()
+    assert manifest["weights_format_version"] == 1
+    weights = read_weights(blob)
+    assert weights.source_sha256 == manifest["model_sha256"]
+    assert weights.tensors["conv_1.kernel"].value.dtype == np.int8
+    # The layers' tensors are the model's parameters; rayo-convert adds the pooling's scalars.
+    assert set(required_tensors()) <= set(weights.tensors)
+    params = sum(weights.tensors[n].value.size for n in required_tensors())
+    assert params == report["parameters"]
+    for i in range(len(x)):
+        d_intent, d_slots = forward(weights, x[i])
+        n = int((x[i, MAX_TOKENS:] > 0).sum())  # padding positions are meaningless
+        np.testing.assert_allclose(d_intent, intent[i], atol=1e-3)
+        np.testing.assert_allclose(d_slots[:n], slots[i, :n], atol=1e-3)
+    # Exporting again from the TFLite file gives the same bytes and leaves the manifest as is.
+    again = tmp_path / "again"
+    again.mkdir()
+    assert (
+        export_weights(tmp_path / MODEL_FILE, again)["weights_sha256"]
+        == hashlib.sha256(blob).hexdigest()
+    )
+    assert (again / WEIGHTS_FILE).read_bytes() == blob
 
 
 def test_token_swaps_leave_shapes_and_padding_alone() -> None:
@@ -308,6 +359,32 @@ def test_ask_writer_trains_exports_and_matches_keras(tmp_path) -> None:  # type:
 
     out = sample(lite, replies.random_facts(3, seed=1), 0.8, np.random.default_rng(0))
     assert len(out) == 3
+
+    # The plain weights rayo runs, read out of the TFLite file: the NumPy reference on them
+    # gives the TFLite built-in kernels' logits.
+    import tensorflow as tf
+
+    from akili.ask.writer_weights import WEIGHTS_FILE, export_weights, forward
+    from akili.export.weights import read_weights
+
+    fields = export_weights(path, tmp_path, n_layers=cfg.layers, heads=cfg.heads)
+    weights = read_weights((tmp_path / WEIGHTS_FILE).read_bytes())
+    assert fields["weights_size_bytes"] < path.stat().st_size
+    assert weights.graph is not None
+    assert weights.graph["states"][0]["shape"] == [64, cfg.dim]
+    builtin = tf.lite.Interpreter(
+        model_path=str(path),
+        experimental_op_resolver_type=tf.lite.experimental.OpResolverType.BUILTIN_WITHOUT_DEFAULT_DELEGATES,
+    )
+    builtin.allocate_tensors()
+    builtin.set_tensor(builtin.get_input_details()[0]["index"], x[1:])
+    builtin.invoke()
+    want = builtin.get_tensor(builtin.get_output_details()[0]["index"])[0]
+    got = forward(weights, x[1], cfg.heads)
+    # Exact up to float rounding; at most an int8 rounding flip apart further in, where a
+    # 1e-7 difference can land a value on the other side of a rounding boundary.
+    assert np.abs(got[:5] - want[:5]).max() < 1e-4
+    assert np.abs(got - want).max() < 0.05
 
     from akili.ask.writer import train_ask_writer
 

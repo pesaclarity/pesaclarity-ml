@@ -2,9 +2,13 @@ from pathlib import Path
 
 import pytest
 
+from akili._optional import has_module
 from akili.config import ExperimentConfig, SyntheticDataConfig
 from akili.privacy.accounting import PrivacyReport, PrivacyUnit, dp_sgd_report
 from akili.privacy.ledger import Ledger, Purpose, synthetic_dataset_id
+
+# The privacy accountant, Opacus, is in the [torch] extra (and [train]).
+needs_opacus = pytest.mark.skipif(not has_module("opacus"), reason="needs the [torch] extra")
 
 
 def report(
@@ -28,6 +32,8 @@ def test_empty_ledger(tmp_path: Path) -> None:
     assert ledger.total("data", PrivacyUnit.USER) is None
 
 
+@pytest.mark.torch
+@needs_opacus
 def test_one_run_totals_its_own_epsilon(tmp_path: Path) -> None:
     ledger = Ledger(tmp_path / "ledger.jsonl")
     r = report()
@@ -39,6 +45,8 @@ def test_one_run_totals_its_own_epsilon(tmp_path: Path) -> None:
     assert ledger.entries()[0].run_id == "abc"
 
 
+@pytest.mark.torch
+@needs_opacus
 def test_every_run_adds_up(tmp_path: Path) -> None:
     """Two runs spend more than one, less than twice (RDP composition), and the same as one run
     twice as long."""
@@ -51,6 +59,8 @@ def test_every_run_adds_up(tmp_path: Path) -> None:
     assert total.epsilon == pytest.approx(report(epochs=16).epsilon)
 
 
+@pytest.mark.torch
+@needs_opacus
 def test_audits_count_and_datasets_and_units_are_kept_apart(tmp_path: Path) -> None:
     ledger = Ledger(tmp_path / "ledger.jsonl")
     ledger.record("data", report(), run="dp-sgd")
@@ -69,6 +79,8 @@ def test_audits_count_and_datasets_and_units_are_kept_apart(tmp_path: Path) -> N
     assert examples.runs == 1
 
 
+@pytest.mark.torch
+@needs_opacus
 def test_total_uses_the_smallest_delta(tmp_path: Path) -> None:
     ledger = Ledger(tmp_path / "ledger.jsonl")
     ledger.record("data", report(delta=1e-5), run="a")

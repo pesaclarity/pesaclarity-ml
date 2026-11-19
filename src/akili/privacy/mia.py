@@ -1,15 +1,20 @@
-"""Run the membership-inference audit against a trained categoriser (needs the [train] extra).
+"""Run the membership-inference audit against a trained categoriser.
+
+The shadow models are trained, and every model scored, by the categoriser's framework (a
+:class:`~akili.train.backend.Backend`: PyTorch, or Keras with ``--keras``).
 
 Setup, following Carlini et al. 2022 ("Membership Inference Attacks From First Principles"):
 
 1. **Candidates.** Up to ``audit.max_candidates`` held-out validation examples (non-members) and
    as many random training examples (members).
-2. **Target scores.** The target model, by default its exported TFLite file, gives each candidate
-   the probability of its true label.
+2. **Target scores.** The target model, by default the file that ships (PyTorch: the rayo int8
+   ``categoriser.weights``; Keras: its TFLite file), gives each candidate the probability of
+   its true label.
 3. **Shadow models.** ``audit.shadow_models`` models are trained with the target's exact
    procedure (same config, plain or DP-SGD) on as many examples as the target saw: each
    candidate is IN for exactly half of the shadows, and the rest is filled from the target's
-   non-candidate data. This is a strong attacker who knows the training procedure and most of the
+   non-candidate data. With ``audit.score_exported`` each shadow is exported and scored the same
+   way as the target. This is a strong attacker who knows the training procedure and most of the
    data, which is the point of an audit.
 4. **Attacks.** ``loss`` (threshold on the target's loss), ``lira-online`` (IN and OUT shadows)
    and ``lira-offline`` (OUT shadows only); see :mod:`akili.privacy.audit`.
@@ -19,19 +24,15 @@ Everything is synthetic; nothing here touches real data.
 
 from __future__ import annotations
 
-import contextlib
 import gc
-import io
-import tempfile
 from collections.abc import Callable
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import numpy.typing as npt
 
 from akili.config import ExperimentConfig
-from akili.export.tflite import run_tflite, to_tflite_bytes
+from akili.export.size import ExportedModel
 from akili.privacy.audit import (
     AuditLimits,
     AuditReport,
@@ -43,6 +44,9 @@ from akili.privacy.audit import (
     result_from_scores,
 )
 from akili.privacy.ledger import Ledger, Purpose
+
+if TYPE_CHECKING:
+    from akili.train.backend import Backend
 
 IndexArray = npt.NDArray[np.int64]
 
@@ -75,17 +79,6 @@ def shadow_inclusion(k: int, n: int, rng: np.random.Generator) -> npt.NDArray[np
     return np.asarray(ranks < k // 2)
 
 
-def _predict(model: Any, x: npt.NDArray[np.int32], exported: bool) -> npt.NDArray[np.float32]:
-    if not exported:
-        return np.asarray(model.predict(x, verbose=0), dtype=np.float32)
-    with tempfile.TemporaryDirectory() as tmp:
-        path = Path(tmp) / "shadow.tflite"
-        # The converter prints a SavedModel summary per call; keep the CLI output readable.
-        with contextlib.redirect_stdout(io.StringIO()):
-            path.write_bytes(to_tflite_bytes(model, quantize=True))
-        return run_tflite(path, x)
-
-
 def run_audit(
     cfg: ExperimentConfig,
     x: npt.NDArray[np.int32],
@@ -95,10 +88,11 @@ def run_audit(
     *,
     users: npt.ArrayLike,
     target: Any,
-    exported: Path | None = None,
+    exported: ExportedModel | None = None,
     epsilon: float | None = None,
     ledger: Ledger | None = None,
     progress: Callable[[str], None] | None = None,
+    backend: Backend | None = None,
 ) -> AuditReport:
     """Attack ``target`` (trained on ``x[train]``) and check the results against the limits.
 
@@ -106,23 +100,23 @@ def run_audit(
     is recorded in ``ledger`` as an audit run on this data. On real data, audit a separate
     stand-in dataset instead, or the audit spends the budget the release needs.
     """
-    from akili.train.pipeline import fit_categoriser
+    from akili.train.pipeline import backend_for
 
+    impl = backend or backend_for()
     say = progress or (lambda _msg: None)
     audit = cfg.audit
-    n_classes = int(target.output_shape[-1])
     rng = np.random.default_rng(audit.seed)
     members, non_members = choose_candidates(train, val, audit.max_candidates, rng)
     candidates = np.concatenate([members, non_members])
     is_member = np.r_[np.ones(len(members), bool), np.zeros(len(non_members), bool)]
     xc, yc = x[candidates], y[candidates]
 
-    use_tflite = audit.score_exported and exported is not None
-    if use_tflite:
-        assert exported is not None
-        target_probs = run_tflite(exported, xc)
+    shipped = audit.score_exported and exported is not None
+    if exported is not None and shipped:
+        target_probs = impl.run_exported(exported, xc)
     else:
-        target_probs = np.asarray(target.predict(xc, verbose=0), dtype=np.float32)
+        target_probs = impl.predict(target, xc)
+    n_classes = int(target_probs.shape[-1])
 
     k = audit.shadow_models
     in_mask = shadow_inclusion(k, len(candidates), rng)
@@ -138,7 +132,7 @@ def run_audit(
     for s in range(k):
         say(f"shadow model {s + 1}/{k}")
         data = np.concatenate([candidates[in_mask[s]], rng.choice(rest, fill, replace=False)])
-        shadow = fit_categoriser(
+        shadow = impl.fit(
             cfg,
             x[data],
             y[data],
@@ -154,7 +148,12 @@ def run_audit(
                 run=f"{cfg.name}/shadow-{s + 1}",
                 purpose=Purpose.AUDIT,
             )
-        shadow_stats[s] = logit_confidence(_predict(shadow.model, xc, use_tflite), yc)
+        probs = (
+            impl.shipped_predict(shadow.model, cfg, xc)
+            if shipped
+            else impl.predict(shadow.model, xc)
+        )
+        shadow_stats[s] = logit_confidence(probs, yc)
         del shadow
         gc.collect()
 

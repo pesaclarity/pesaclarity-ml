@@ -44,6 +44,10 @@ class TrainingConfig(_Strict):
     batch_size: int = Field(default=64, ge=1)
     learning_rate: float = Field(default=0.01, gt=0)
     validation_fraction: float = Field(default=0.2, gt=0, lt=1)
+    lr_schedule: Literal["constant", "cosine"] = "cosine"
+    """PyTorch, without DP: ``cosine`` lowers Adam's learning rate to 0 along a cosine over the
+    run; ``constant`` is the Keras recipe (and ``--keras`` ignores it). DP-SGD keeps a constant
+    rate and averages its weights instead (``dp.weight_average``)."""
 
 
 class DPConfig(_Strict):
@@ -61,6 +65,12 @@ class DPConfig(_Strict):
     l2_norm_clip: float = Field(default=1.0, gt=0)
     noise_multiplier: float = Field(default=1.1, ge=0)
     target_delta: float | None = Field(default=None, gt=0, lt=1)
+    weight_average: float = Field(default=0.99, ge=0, lt=1)
+    """PyTorch: release an exponential moving average of the weights over the DP-SGD steps,
+    with this decay (0: the last step's weights, the Keras recipe; ``--keras`` ignores it). The
+    decay ramps up as ``(1 + t) / (10 + t)`` over the first steps, so the start weights fade.
+    It averages the noisy steps after they are taken (post-processing), so it costs no
+    privacy, and it smooths out the noise each step adds."""
     noise_seed: int | None = None
     """Leave unset for real data: noise and sampling then come from OS entropy and are never
     logged. Set it only for synthetic runs that must be reproducible, such as CI and audits.
@@ -97,10 +107,27 @@ class FineTuneConfig(_Strict):
 
 class ExportConfig(_Strict):
     max_size_bytes: int = Field(default=1_000_000, ge=1)
+    """Budget for the file that ships: ``categoriser.weights`` (``--keras``: the TFLite file)."""
     quantize: bool = True
+    """``--keras`` only: TFLite dynamic-range quantisation. The torch export is always
+    rayo-convert's int8."""
     trainable: bool = True
-    """Also export ``categoriser-train.tflite`` with train, infer, save and restore signatures."""
+    """Let the app fine-tune the model: the manifest's ``fine_tune`` block (the dense layers'
+    SGD step of docs/FINE-TUNING.md). ``--keras``: also export ``categoriser-train.tflite``
+    with train, infer, save and restore signatures."""
     fine_tune: FineTuneConfig = FineTuneConfig()
+    parity_tolerance: float = Field(default=0.25, gt=0, lt=1)
+    """The largest difference allowed between the torch model's float probabilities and the
+    int8 file's on any parity row or feature vector. Decision 0023 proposed 1e-2; the int8
+    token table has one scale, and DP-SGD's noise on rows no person used widens it, so a row of
+    unseen tokens moves by up to 0.17 in the DP configs (0.03 without DP; docs/CATEGORISER.md)."""
+    parity_tolerance_p99_9: float = Field(default=0.08, gt=0, lt=1)
+    """The same at the 99.9th percentile of the rows (measured up to 0.057 with DP, 0.022
+    without)."""
+    parity_label_margin: float = Field(default=0.2, gt=0, lt=1)
+    """Labels must agree wherever torch's two best probabilities are more than this apart."""
+    parity_rows: int = Field(default=2000, ge=1)
+    """Transactions, generated with the next data seed, the shipped file is checked on."""
 
     @model_validator(mode="after")
     def _examples_in_order(self) -> Self:
@@ -110,7 +137,7 @@ class ExportConfig(_Strict):
 
 
 class AuditConfig(_Strict):
-    """Membership-inference audit of the trained model (needs the [train] extra).
+    """Membership-inference audit of the trained model.
 
     Runs after training when ``enabled`` is true, and always under ``akili audit``. The pass/fail
     limits come from the track policy in ``tracks.yaml``; the ``max_*``/``min_*`` fields here can
@@ -123,7 +150,8 @@ class AuditConfig(_Strict):
     max_candidates: int = Field(default=2000, ge=10)
     """At most this many members and as many held-out non-members are attacked."""
     score_exported: bool = True
-    """Score the exported TFLite file (what ships) rather than the Keras model."""
+    """Score the file that ships (the rayo int8 ``categoriser.weights``; ``--keras``: the
+    TFLite file), and each shadow model exported the same way, rather than the float model."""
     seed: int = 1234
     max_attack_auc: float | None = Field(default=None, ge=0.5, le=1)
     max_attack_advantage: float | None = Field(default=None, ge=0, le=1)

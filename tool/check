@@ -2,8 +2,15 @@
 # Run the repository's checks on this machine (they used to run in GitHub CI).
 #
 #   tool/check          everything: lint, types, all tests (TensorFlow included),
-#                       smoke training runs, then the core-only install
+#                       the Keras smoke runs, the torch tests and the PyTorch
+#                       smoke runs on their own (no TensorFlow), then the
+#                       core-only install, and the accountants' figures
 #   tool/check --fast   format, lint, types and the tests that skip TensorFlow
+#                       (the torch tests run only if the [torch] extra is installed)
+#
+# AKILI_CHECK_TORCH=0 leaves out the torch step (it installs PyTorch's CPU wheels
+# into a throwaway environment once, and fetches rayo's C sources, to run the
+# converted files: RAYO_DIR names a rayo checkout to use instead).
 #
 # The pre-push hook runs the full check. Needs uv: https://docs.astral.sh/uv/
 set -euo pipefail
@@ -45,8 +52,9 @@ if $fast; then
   # --inexact keeps any extras you have installed instead of removing them.
   run=(uv run --locked --inexact)
 else
-  # Full check uses the training and federated extras, like CI's train job.
-  run=(uv run --locked --all-extras)
+  # Full check uses the training and federated extras, like CI's train job. The
+  # [torch] extra runs on its own below, without TensorFlow.
+  run=(uv run --locked --extra train --extra fl)
 fi
 
 step "ruff format" "run 'uv run ruff format .'" "${run[@]}" ruff format --check .
@@ -63,14 +71,65 @@ fi
 
 fix_smoke="rerun the command above and read its error; see README.md"
 step "pytest (all, with extras)" "fix the failing tests above" "${run[@]}" pytest
-step "smoke: train" "$fix_smoke" "${run[@]}" akili train --config configs/smoke.yaml
-step "smoke: train DP-SGD" "$fix_smoke" "${run[@]}" akili train --config configs/dp-sgd.yaml
-step "smoke: federated simulation" "$fix_smoke" \
-  "${run[@]}" akili simulate --config configs/federated-smoke.yaml
-# Quick audit runs the attacks end to end; too small to pass, so report only.
-step "quick privacy audit (report only)" "$fix_smoke" \
-  "${run[@]}" akili audit --quick --report-only \
-  --config configs/audit-no-dp.yaml --config configs/audit-dp-sgd.yaml
+# The smoke runs of the Keras categoriser (--keras), kept until TensorFlow is removed; the
+# PyTorch one's run in the [torch] environment below.
+smoke() {
+  local env=$1 label=$2
+  shift 2
+  local r=("${!env}")
+  step "smoke: train$label" "$fix_smoke" "${r[@]}" akili train "$@" --config configs/smoke.yaml
+  step "smoke: train DP-SGD$label" "$fix_smoke" "${r[@]}" akili train "$@" --config configs/dp-sgd.yaml
+  step "smoke: federated simulation$label" "$fix_smoke" \
+    "${r[@]}" akili simulate "$@" --config configs/federated-smoke.yaml
+  # Quick audit runs the attacks end to end; too small to pass, so report only.
+  step "quick privacy audit (report only)$label" "$fix_smoke" \
+    "${r[@]}" akili audit "$@" --quick --report-only \
+    --config configs/audit-no-dp.yaml --config configs/audit-dp-sgd.yaml
+}
+smoke "run[@]" " (Keras)" --keras
+
+# The torch export path (akili.export.onnx) in an environment of its own: core and
+# [torch], no TensorFlow, which the path must not need. rayo's C library runs the
+# converted files, built from rayo's sources at the commit pyproject.toml pins.
+rayo_sources() {
+  local commit dir
+  # A git hook exports GIT_DIR (and in a linked worktree GIT_INDEX_FILE and
+  # friends). Left set, `git init` below would re-initialise this repository
+  # (setting core.bare) instead of creating the new one, and the fetch would fail.
+  # This function runs in a $(...) subshell, so unsetting them here is local.
+  unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+    GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_PREFIX
+  commit=$(grep -o 'pesaclarity/rayo@[0-9a-f]\{40\}' pyproject.toml | head -1 | cut -d@ -f2)
+  dir=".cache/rayo/$commit"
+  if [ ! -f "$dir/src/model.c" ]; then
+    rm -rf "$dir"
+    mkdir -p "$dir" || return 1
+    # Every git call names the new repository explicitly: with -C alone, a failed
+    # init (a full disk, say) would leave the commands below working on this
+    # checkout instead.
+    git init -q "$dir" && [ -d "$dir/.git" ] || { rm -rf "$dir"; return 1; }
+    local g=(git --git-dir="$dir/.git" --work-tree="$dir")
+    { "${g[@]}" sparse-checkout set src include >/dev/null &&
+      "${g[@]}" fetch -q --depth 1 --filter=blob:none https://github.com/pesaclarity/rayo "$commit" &&
+      "${g[@]}" checkout -q FETCH_HEAD; } || { rm -rf "$dir"; return 1; }
+  fi
+  echo "$PWD/$dir"
+}
+if [ "${AKILI_CHECK_TORCH:-1}" != 0 ]; then
+  torch=(uv run --locked --isolated --extra torch)
+  if [ -z "${RAYO_DIR:-}" ]; then
+    RAYO_DIR=$(rayo_sources) || {
+      echo "    (could not fetch rayo's sources: the tests that run rayo's C library skip)"
+      RAYO_DIR=
+    }
+  fi
+  export RAYO_DIR
+  step "no TensorFlow with [torch]" "keep TensorFlow out of the [torch] extra" \
+    "${torch[@]}" python -c "import importlib.util as u, sys; sys.exit(u.find_spec('tensorflow') is not None)"
+  step "mypy (torch extra)" "fix the type errors listed above" "${torch[@]}" mypy
+  step "pytest (torch)" "fix the failing tests above" "${torch[@]}" pytest -m torch
+  smoke "torch[@]" " (PyTorch)"
+fi
 
 # The core install (no extras) must work on its own. --isolated builds a
 # throwaway environment, so your .venv keeps its extras.
@@ -78,6 +137,11 @@ core=(uv run --locked --isolated)
 step "mypy (core install, no extras)" "keep optional extras out of core imports" "${core[@]}" mypy
 step "pytest (core install, no extras)" "keep optional extras out of core code and tests" \
   "${core[@]}" pytest
+# The accountants need Opacus, which is in the [torch] and [train] extras, not core: the
+# extras' environment has it, and dp-accounting (core) for the old figures.
+step "accountants match accountants.v1.json" \
+  "run 'uv run --extra torch akili accountants' and say in the pull request why the figures moved" \
+  "${run[@]}" akili accountants --check
 
 echo
 echo "All checks passed."
