@@ -2301,7 +2301,7 @@ _V4_COUNTS: dict[str, list[str]] = {
 for _intent, _extra in _V4_COUNTS.items():
     TEMPLATES[_intent].extend(_extra)
 
-# A first name alone, often in lower case ("how much to kevin", "has faith paid me back").
+# A first name alone, often in lower case, as money out ("how much to kevin").
 _V4_FIRST: dict[str, list[str]] = {
     "spent": [
         "<much> [did i|have i] [pay|paid|give|gave] {first} [so far|in total|altogether|] " + _P
@@ -2310,8 +2310,6 @@ _V4_FIRST: dict[str, list[str]] = {
         "<sent_out> to {first} " + _P,
         "[what|how much|all] [i|i've|i have] <sent_out> to {first} [so far|]",
     ],
-    "received_from": ["<got_in> from {first} " + _P],
-    "lent": ["[did|has] {first} [return|returned|refund|refunded] [my money|the loan|the money]"],
 }
 for _intent, _extra in _V4_FIRST.items():
     TEMPLATES[_intent].extend(_extra)
