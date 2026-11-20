@@ -17,7 +17,7 @@ NEEDS_OPACUS = (
 
 
 def test_check_size(tmp_path: Path) -> None:
-    path = tmp_path / "m.tflite"
+    path = tmp_path / "m.weights"
     path.write_bytes(b"x" * 100)
     assert check_size(path, 100).size_bytes == 100
     with pytest.raises(ModelTooLargeError, match="budget is 99"):

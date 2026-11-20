@@ -4,8 +4,10 @@ Review of the DP-SGD code against the privacy accountant's assumptions, the trac
 and the state of maintained DP libraries. First reviewed on 2026-11-04 on the Keras code;
 **redone on 2026-11-19 on the PyTorch code and Opacus's accountant** (decision 0023, stage 4;
 [below](#2026-11-19-the-pytorch-loop-and-opacus)). The sections after that one are the original
-review of the Keras loop (`akili.train.keras_dp_sgd`, kept for `--keras` until TensorFlow is
-removed); their line numbers refer to it.
+review of the Keras loop (`akili.train.keras_dp_sgd`, removed with TensorFlow in stage 5; it is
+at the `tflite-archive` tag); their line numbers refer to it there. dp-accounting went in stage
+5 too: its figures signed off in #3 are kept as the record in
+[`accountants.v1.json`](../src/akili/resources/accountants.v1.json), beside Opacus's.
 
 Some terms used below:
 

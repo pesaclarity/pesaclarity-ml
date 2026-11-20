@@ -1,8 +1,7 @@
 """Centralised training pipeline: synthetic data, train (plain or DP-SGD), export, audit, track.
 
-Written once for any :class:`~akili.train.backend.Backend`: the PyTorch categoriser
-(:mod:`akili.train.torch_backend`, the default) or, with ``backend_for(keras=True)`` until
-TensorFlow is removed, the Keras one (:mod:`akili.train.keras_pipeline`).
+Written for a :class:`~akili.train.backend.Backend`: the PyTorch categoriser
+(:mod:`akili.train.torch_backend`).
 """
 
 from __future__ import annotations
@@ -48,12 +47,8 @@ class TrainResult:
     measured (``export``)."""
 
 
-def backend_for(keras: bool = False) -> Backend:
-    """The PyTorch backend, or the Keras one (``keras``) until TensorFlow is removed."""
-    if keras:
-        from akili.train.keras_pipeline import KerasBackend
-
-        return KerasBackend()
+def backend_for() -> Backend:
+    """The PyTorch backend (the [torch] extra)."""
     require("torch", "torch")
     from akili.train.torch_backend import TorchBackend
 

@@ -1,22 +1,23 @@
-"""The privacy accountants side by side: Google's ``dp-accounting`` (what the figures signed off
-in pesaclarity-ml#3 came from) against Opacus (what computes them since decision 0023, stage 4).
+"""Opacus's privacy budgets beside the figures Google's ``dp-accounting`` gave, which were
+signed off in pesaclarity-ml#3 (Opacus computes them since decision 0023, stage 4).
 
 ``accountants.v1.json`` (``akili accountants``) records, for the same mechanisms:
 
 - ``cases``: every DP config in ``configs/`` (as ``akili epsilon`` plans it), the example in
   docs/DP-SGD-REVIEW.md, and a grid of sampling rates, noise multipliers, steps and deltas;
-  each with dp-accounting's RDP (the orders signed off,
-  :data:`~akili.privacy.accounting.SIGNED_OFF_RDP_ORDERS`) and PLD epsilon, and Opacus's RDP
-  with the same orders (``rdp_signed_off_orders``), with the integer ones the gate uses
-  (``rdp``) and PRV;
-- ``ledgers``: the entries of recorded privacy ledgers and their totals, composed by each
-  library's RDP accountant;
+  each with Opacus's RDP epsilon at the integer orders the gate uses (``rdp``), at the orders
+  signed off (:data:`~akili.privacy.accounting.SIGNED_OFF_RDP_ORDERS`,
+  ``rdp_signed_off_orders``) and PRV, beside dp-accounting's RDP and PLD epsilon;
+- ``ledgers``: the entries of recorded privacy ledgers and their totals, composed by Opacus's
+  RDP accountant, beside dp-accounting's;
 - ``limits``: for each config's and each grid point's sampling rate and noise multiplier, and
   each track, the most steps whose RDP epsilon stays within the track's limits, by each. The
   gate admits no run the signed-off figure refused when Opacus's never allows more steps.
 
-dp-accounting's figures are computed when it is installed and otherwise read from the
-committed file, which stays the record once it is removed (stage 5).
+dp-accounting was removed with TensorFlow (stage 5). Its columns (``dp_accounting``,
+``dp_accounting_max_steps``) are the record of the signed-off figures, as dp-accounting 0.6.0
+computed them at the ``tflite-archive`` tag: they are read from the committed file and never
+recomputed. Only Opacus's are. A case or ledger added since has no dp-accounting column.
 """
 
 from __future__ import annotations
@@ -29,7 +30,6 @@ from itertools import product
 from pathlib import Path
 from typing import Any
 
-from akili._optional import has_module
 from akili.config import ExperimentConfig, load_config
 from akili.privacy.accounting import (
     PRV_EPS_ERROR,
@@ -100,32 +100,6 @@ def planned_report(cfg: ExperimentConfig, population: int | None = None) -> Priv
         unit=cfg.dp.unit,
         delta=cfg.dp.target_delta,
     )
-
-
-# --- dp-accounting (until stage 5) ---------------------------------------------------------
-
-
-def _dp_accounting_rdp(mechanisms: Sequence[Mechanism], delta: float) -> float:
-    import dp_accounting
-
-    accountant = dp_accounting.rdp.RdpAccountant(orders=list(SIGNED_OFF_RDP_ORDERS))
-    for q, sigma, steps in mechanisms:
-        if steps == 0:
-            continue
-        if sigma <= 0:
-            return math.inf
-        event = dp_accounting.PoissonSampledDpEvent(q, dp_accounting.GaussianDpEvent(sigma))
-        accountant.compose(event, steps)
-    return float(accountant.get_epsilon(delta))
-
-
-def _dp_accounting_pld(q: float, sigma: float, steps: int, delta: float) -> float:
-    import dp_accounting
-
-    accountant = dp_accounting.pld.PLDAccountant(value_discretization_interval=1e-4)
-    event = dp_accounting.PoissonSampledDpEvent(q, dp_accounting.GaussianDpEvent(sigma))
-    accountant.compose(event, steps)
-    return float(accountant.get_epsilon(delta))
 
 
 def _opacus_signed_off_orders(mechanisms: Sequence[Mechanism], delta: float) -> float:
@@ -223,39 +197,33 @@ def build(
 ) -> dict[str, Any]:
     """The comparison. Cases come from ``configs`` and the grid, ledgers from the ledger files
     (or, for each that ``previous`` holds and is not given again, from ``previous``).
-    dp-accounting's figures are computed when it is installed, else taken from ``previous``."""
-    old = has_module("dp_accounting")
+    dp-accounting's figures, the signed-off record, are taken from ``previous`` for every case,
+    ledger and limit it holds; Opacus's are computed."""
     before = {c["id"]: c for c in (previous or {}).get("cases", [])}
     before_ledgers = {g["id"]: g for g in (previous or {}).get("ledgers", [])}
     before_limits = {(x["id"], x["track"]): x for x in (previous or {}).get("limits", [])}
 
-    def reference(item: dict[str, Any], key: str, compute: Any) -> Any:
-        if old:
-            return compute()
-        kept = item.get(key)
-        if kept is None:
-            raise ValueError(
-                f"{item['id']}: dp-accounting is not installed and the committed file has no "
-                "figure for it"
-            )
-        return kept
+    def recorded(now: dict[str, Any], then: dict[str, Any] | None, keys: Sequence[str]) -> Any:
+        """The signed-off figure of ``then``, if the record has one for the same mechanism as
+        ``now`` (a config whose settings changed keeps no figure it was not signed off with)."""
+        if then is None or any(now.get(k) != then.get(k) for k in keys):
+            return None
+        return then.get("dp_accounting", then.get("dp_accounting_max_steps"))
+
+    def column(figure: Any) -> dict[str, Any]:
+        return {} if figure is None else {"dp_accounting": figure}
+
+    mechanism = ("sampling_rate", "noise_multiplier", "steps", "delta")
 
     cases = []
     for c in _cases(configs) if configs else list(before.values()):
         q, sigma, steps = _mechanism(c)
         d = float(c["delta"])
-        prior = before.get(c["id"], {}).get("dp_accounting")
+        prior = recorded(c, before.get(c["id"]), mechanism)
         cases.append(
             {
                 **{k: c[k] for k in c if k not in ("dp_accounting", "opacus")},
-                "dp_accounting": reference(
-                    {"id": c["id"], "x": prior},
-                    "x",
-                    lambda q=q, sigma=sigma, steps=steps, d=d: {
-                        "rdp": _r(_dp_accounting_rdp([(q, sigma, steps)], d)),
-                        "pld": _r(_dp_accounting_pld(q, sigma, steps, d)),
-                    },
-                ),
+                **column(prior),
                 "opacus": {
                     "rdp": _r(composed_epsilon([(q, sigma, steps)], d)),
                     "rdp_signed_off_orders": _r(_opacus_signed_off_orders([(q, sigma, steps)], d)),
@@ -274,15 +242,11 @@ def build(
     for g in groups.values():
         mechs = [_mechanism(e) for e in g["entries"]]
         d = float(g["delta"])
-        prior = before_ledgers.get(g["id"], {}).get("dp_accounting")
+        prior = recorded(g, before_ledgers.get(g["id"]), ("delta", "entries"))
         out_ledgers.append(
             {
-                **g,
-                "dp_accounting": reference(
-                    {"id": g["id"], "x": prior},
-                    "x",
-                    lambda mechs=mechs, d=d: {"rdp": _r(_dp_accounting_rdp(mechs, d))},
-                ),
+                **{k: v for k, v in g.items() if k not in ("dp_accounting", "opacus")},
+                **column(prior),
                 "opacus": {
                     "rdp": _r(composed_epsilon(mechs, d)),
                     "rdp_signed_off_orders": _r(_opacus_signed_off_orders(mechs, d)),
@@ -303,7 +267,16 @@ def build(
         c = {"id": ",".join(ids)}
         for track in Track:
             p = policy_for(track)
-            prior = before_limits.get((c["id"], track.value), {}).get("dp_accounting_max_steps")
+            prior = recorded(
+                {
+                    "sampling_rate": q,
+                    "noise_multiplier": sigma,
+                    "max_delta": p.max_delta,
+                    "max_epsilon": p.max_epsilon,
+                },
+                before_limits.get((c["id"], track.value)),
+                ("sampling_rate", "noise_multiplier", "max_delta", "max_epsilon"),
+            )
             limits.append(
                 {
                     "id": c["id"],
@@ -312,13 +285,7 @@ def build(
                     "max_delta": p.max_delta,
                     "sampling_rate": q,
                     "noise_multiplier": sigma,
-                    "dp_accounting_max_steps": reference(
-                        {"id": c["id"], "x": prior},
-                        "x",
-                        lambda q=q, sigma=sigma, p=p: _max_steps(
-                            _dp_accounting_rdp, q, sigma, p.max_delta, p.max_epsilon
-                        ),
-                    ),
+                    **({} if prior is None else {"dp_accounting_max_steps": prior}),
                     "opacus_max_steps": _max_steps(
                         composed_epsilon, q, sigma, p.max_delta, p.max_epsilon
                     ),
@@ -330,12 +297,12 @@ def build(
 
     versions = dict((previous or {}).get("versions", {}))
     versions["opacus"] = metadata.version("opacus")
-    if old:
-        versions["dp-accounting"] = metadata.version("dp-accounting")
     return {
         "note": (
-            "Privacy budgets of the same mechanisms from dp-accounting (the figures signed off "
-            "in pesaclarity-ml#3) and from Opacus (decision 0023, stage 4). Regenerate with "
+            "Privacy budgets of the same mechanisms from Opacus (decision 0023, stage 4), beside "
+            "dp-accounting's, the figures signed off in pesaclarity-ml#3. dp-accounting was "
+            "removed in stage 5: its columns are the record from dp-accounting 0.6.0 (tag "
+            "tflite-archive) and are not recomputed. Regenerate Opacus's with "
             "`akili accountants`."
         ),
         "versions": versions,
@@ -350,10 +317,13 @@ def build(
 
 
 def differences(doc: dict[str, Any]) -> dict[str, Any]:
-    """The largest differences between the libraries over the finite figures: Opacus's RDP
-    against dp-accounting's (relative), PRV against PLD (absolute), and whether the gate
-    admits the same steps."""
-    finite = [c for c in doc["cases"] if 0 < c["dp_accounting"]["rdp"] < math.inf]
+    """The largest differences between the libraries over the finite figures that have a
+    signed-off column: Opacus's RDP against dp-accounting's (relative), PRV against PLD
+    (absolute), and whether the gate admits the same steps."""
+    cases = [c for c in doc["cases"] if "dp_accounting" in c]
+    ledgers = [g for g in doc["ledgers"] if "dp_accounting" in g]
+    limits = [x for x in doc["limits"] if "dp_accounting_max_steps" in x]
+    finite = [c for c in cases if 0 < c["dp_accounting"]["rdp"] < math.inf]
 
     def rel(key: str) -> list[float]:
         return [
@@ -364,7 +334,7 @@ def differences(doc: dict[str, Any]) -> dict[str, Any]:
     rdp, same_orders = rel("rdp"), rel("rdp_signed_off_orders")
     tight = [
         c["opacus"]["prv"] - c["dp_accounting"]["pld"]
-        for c in doc["cases"]
+        for c in cases
         if c["dp_accounting"]["pld"] < math.inf
     ]
     return {
@@ -374,7 +344,7 @@ def differences(doc: dict[str, Any]) -> dict[str, Any]:
         "rdp_signed_off_orders_relative_max": max(same_orders),
         "configs_same": all(
             c["opacus"]["rdp"] == c["dp_accounting"]["rdp"]
-            for c in doc["cases"]
+            for c in cases
             if c["id"].startswith("config:")
         ),
         "prv_minus_pld_min": min(tight),
@@ -382,20 +352,18 @@ def differences(doc: dict[str, Any]) -> dict[str, Any]:
         "ledgers_relative_max": max(
             (
                 abs(g["opacus"]["rdp"] - g["dp_accounting"]["rdp"]) / g["dp_accounting"]["rdp"]
-                for g in doc["ledgers"]
+                for g in ledgers
             ),
             default=0.0,
         ),
         "limits_never_more_steps": all(
-            x["opacus_max_steps"] <= x["dp_accounting_max_steps"] for x in doc["limits"]
+            x["opacus_max_steps"] <= x["dp_accounting_max_steps"] for x in limits
         ),
-        "limits_same": all(
-            x["opacus_max_steps"] == x["dp_accounting_max_steps"] for x in doc["limits"]
-        ),
+        "limits_same": all(x["opacus_max_steps"] == x["dp_accounting_max_steps"] for x in limits),
         "limits_signed_off_orders_more_steps": [
             f"{x['id']} {x['track']}: {x['opacus_signed_off_orders_max_steps']} against "
             f"{x['dp_accounting_max_steps']}"
-            for x in doc["limits"]
+            for x in limits
             if x["opacus_signed_off_orders_max_steps"] > x["dp_accounting_max_steps"]
         ],
     }
@@ -420,7 +388,10 @@ def mismatches(committed: dict[str, Any], fresh: dict[str, Any], rel: float = 1e
                 out.append(f"{c['id']}: not in the committed file")
                 continue
             for lib in ("dp_accounting", "opacus"):
-                for k, v in c[lib].items():
+                if (lib in c) != (lib in o):
+                    out.append(f"{c['id']} {lib}: in one file only")
+                    continue
+                for k, v in c.get(lib, {}).items():
                     if not close(float(v), float(o[lib][k])):
                         out.append(f"{c['id']} {lib} {k}: {o[lib][k]} committed, {v} now")
     old_limits = {(x["id"], x["track"]): x for x in committed.get("limits", [])}
@@ -431,6 +402,7 @@ def mismatches(committed: dict[str, Any], fresh: dict[str, Any], rel: float = 1e
             "opacus_max_steps",
             "opacus_signed_off_orders_max_steps",
         ):
-            if o is None or o[k] != x[k]:
-                out.append(f"{x['id']} {x['track']} {k}: {o and o[k]} committed, {x[k]} now")
+            if o is None or o.get(k) != x.get(k):
+                was = o and o.get(k)
+                out.append(f"{x['id']} {x['track']} {k}: {was} committed, {x.get(k)} now")
     return out

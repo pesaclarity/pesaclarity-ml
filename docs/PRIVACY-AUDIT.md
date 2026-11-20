@@ -4,7 +4,7 @@ Before any model leaves the server, the spec requires that "a membership-inferen
 passes". This page says what the audit does, how to run it and how to read its numbers. The
 code is in [`privacy/audit.py`](../src/akili/privacy/audit.py) (metrics, attacks, limits; numpy
 only) and [`privacy/mia.py`](../src/akili/privacy/mia.py) (shadow training, with the
-categoriser's PyTorch backend: needs `[torch]`; `--keras` audits the Keras model, `[train]`).
+categoriser's PyTorch backend: needs `[torch]`).
 
 Everything runs on synthetic data from [`synthetic.py`](../src/akili/synthetic.py). Never point
 the audit at real messages; when opted-in evaluation data exists it will be audited on the
@@ -24,8 +24,7 @@ DP-SGD bounds this in theory; the audit measures it in practice, against the act
 2. **Target scores.** The file that would ship, rayo's int8 `categoriser.weights` as rayo runs
    it (`RAYO_DIR`; without a rayo checkout, rayo-convert's reference of the same int8 graph),
    gives each candidate the probability of its true category. Each shadow model is exported
-   and scored the same way. (`audit.score_exported: false` uses the float models; `--keras`
-   scores the TFLite files.)
+   and scored the same way. (`audit.score_exported: false` uses the float models.)
 3. **Shadow models.** `audit.shadow_models` (default 16) models trained exactly like the target,
    with the same config, DP-SGD included, on as many examples as the target saw. Each candidate
    is in the training set of exactly half of them; the rest is filled from the target's other

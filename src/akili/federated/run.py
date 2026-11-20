@@ -1,9 +1,8 @@
-"""Federated simulation on synthetic users, with the PyTorch trainer (or, given the Keras
-backend, the Keras one until TensorFlow is removed).
+"""Federated simulation on synthetic users, with the PyTorch trainer.
 
-The weights go between the simulated server and its clients as NumPy arrays in Keras' order and
-layout, as between pesaclarity-backend's aggregator and the phones
-(:meth:`akili.train.backend.Backend.get_weights`), whichever framework trains them."""
+The weights go between the simulated server and its clients as NumPy arrays in the order and
+layout Keras' ``get_weights()`` gave, as between pesaclarity-backend's aggregator and the phones
+(:meth:`akili.train.backend.Backend.get_weights`)."""
 
 from __future__ import annotations
 

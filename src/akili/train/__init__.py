@@ -1,1 +1,1 @@
-"""Centralised and DP-SGD training: the PyTorch categoriser, and the Keras one for ``--keras``."""
+"""Centralised and DP-SGD training of the PyTorch categoriser."""

@@ -2,10 +2,10 @@
 
 The app fine-tunes the categoriser on the person's own confirmations without anything leaving
 the phone (docs/FINE-TUNING.md). The Keras export did it with a second TFLite file holding
-hand-written gradients (``categoriser-train.tflite``, :mod:`akili.export.trainable`, kept for
-``--keras``). The PyTorch export ships no second file (decision 0023): the step is written down
-here, with conformance vectors whose reference torch computes, and the app's own code (Dart, or
-rayo once it has a backward pass) implements it.
+hand-written gradients (``categoriser-train.tflite``, removed with TensorFlow in stage 5; at
+the ``tflite-archive`` tag). The PyTorch export ships no second file (decision 0023): the step
+is written down here, with conformance vectors whose reference torch computes, and the app's
+own code (Dart, or rayo once it has a backward pass) implements it.
 
 The step trains ``hidden`` and ``category`` (:data:`TRAINED`) and keeps everything before them
 frozen: ``f``, what ``hidden`` reads, comes from the shipped ``categoriser.weights`` as rayo

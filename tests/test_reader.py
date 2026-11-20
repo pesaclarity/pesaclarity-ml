@@ -3,7 +3,6 @@ import json
 import numpy as np
 import pytest
 
-from akili._optional import has_module
 from akili.reader import examples, vectors
 from akili.reader.synthetic import (
     FIELD_LABELS,
@@ -126,17 +125,6 @@ def test_field_scores_count_whole_spans() -> None:
     assert exact["counterparty"]["f1"] == 1.0
     partial = field_scores(truth, np.array([[0, 1, 0, 0, 2, 0]]))
     assert partial["amount"]["f1"] == 0.0
-
-
-@pytest.mark.skipif(not has_module("tensorflow"), reason="needs the [train] extra")
-def test_keras_reader_trains_and_exports(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    from akili.reader.keras_train import MANIFEST_FILE, MODEL_FILE, ReaderConfig, train_reader
-
-    report = train_reader(ReaderConfig(messages=1500, epochs=2), tmp_path, evaluate=False)
-    manifest = json.loads((tmp_path / MANIFEST_FILE).read_text())
-    assert (tmp_path / MODEL_FILE).stat().st_size == manifest["model_size_bytes"]
-    assert manifest["outputs"]["fields"]["labels"] == FIELD_LABELS
-    assert report["model_size_bytes"] < 512_000
 
 
 def test_examples_page_matches_the_generator() -> None:

@@ -9,7 +9,7 @@ torch's automatic gradients compute the reference).
 
 Until decision 0023 the Keras export shipped a second TFLite file for this,
 `categoriser-train.tflite`, with `train`, `infer`, `save` and `restore` signatures and
-hand-written gradients (`akili train --keras` still writes it until TensorFlow is removed).
+hand-written gradients (removed with TensorFlow in stage 5; at the `tflite-archive` tag).
 The PyTorch categoriser ships no second file: the step below is small enough to write down,
 and the app implements it itself (in Dart, or in rayo once it has a backward pass).
 

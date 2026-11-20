@@ -126,7 +126,7 @@ def _history(mechanisms: Mechanisms) -> list[tuple[float, float, int]] | None:
 
 
 def accountants() -> ModuleType:
-    """``opacus.accountants``, which the [torch] and [train] extras install (with torch); the
+    """``opacus.accountants``, which the [torch] extra installs (with torch); the
     core install has no privacy accounting."""
     try:
         return importlib.import_module("opacus.accountants")

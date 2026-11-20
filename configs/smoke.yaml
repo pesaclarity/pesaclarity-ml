@@ -13,4 +13,3 @@ dp:
   enabled: false
 export:
   max_size_bytes: 512000
-  quantize: true

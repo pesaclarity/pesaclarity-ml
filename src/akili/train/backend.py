@@ -1,10 +1,9 @@
 """What the centralised pipeline, the audit and the federated simulation need from a framework.
 
-The categoriser trains in PyTorch (:mod:`akili.train.torch_backend`) and, until TensorFlow is
-removed (decision 0023, stage 5), in Keras (:mod:`akili.train.keras_pipeline`, ``--keras``).
-Both give the same things, so the pipeline (:mod:`akili.train.pipeline`), the
-membership-inference audit (:mod:`akili.privacy.mia`) and the federated simulation
-(:mod:`akili.federated.run`) are written once.
+The categoriser trains in PyTorch (:mod:`akili.train.torch_backend`). The pipeline
+(:mod:`akili.train.pipeline`), the membership-inference audit (:mod:`akili.privacy.mia`) and
+the federated simulation (:mod:`akili.federated.run`) are written against this protocol, as they
+were when a Keras backend stood beside it (removed in decision 0023, stage 5).
 """
 
 from __future__ import annotations
@@ -52,7 +51,7 @@ class Backend(Protocol):
 
     @property
     def name(self) -> str:
-        """``torch`` or ``keras``."""
+        """``torch``."""
         ...
 
     def fit(
@@ -95,7 +94,8 @@ class Backend(Protocol):
         ...
 
     def get_weights(self, model: Any) -> Weights:
-        """The weights as the federated protocol carries them: Keras' order and layout."""
+        """The weights as the federated protocol carries them: the order and layout Keras'
+        ``get_weights()`` gave, which pesaclarity-backend's aggregator holds."""
         ...
 
     def set_weights(self, model: Any, weights: Weights) -> None: ...
