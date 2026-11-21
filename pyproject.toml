@@ -1,6 +1,6 @@
 [project]
 name = "akili"
-version = "0.2.0"
+version = "0.3.0"
 description = "Pesa Clarity on-device models: synthetic data, DP training, federated client, export to rayo's weights and privacy audits."
 readme = "README.md"
 license = "AGPL-3.0-only"
