@@ -2,6 +2,7 @@ version: 2
 updates:
   - package-ecosystem: uv
     directory: /
+    target-branch: dev # main takes only promotions from dev
     schedule:
       interval: weekly
     groups:
@@ -11,5 +12,6 @@ updates:
         patterns: ["ruff", "mypy", "pytest", "types-*"]
   - package-ecosystem: github-actions
     directory: /
+    target-branch: dev # main takes only promotions from dev
     schedule:
       interval: weekly
