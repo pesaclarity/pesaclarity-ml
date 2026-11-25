@@ -84,8 +84,10 @@ def test_app_payees_are_fake() -> None:
 
 def test_app_payees_are_mostly_bare_names_and_keep_the_rest_of_the_data() -> None:
     sms, app = generate(APP.model_copy(update={"payee_format": "sms"})), generate(APP)
-    assert [(t.amount_minor, t.timestamp, t.category) for t in sms] == [
-        (t.amount_minor, t.timestamp, t.category) for t in app
+    assert [(t.timestamp, t.category) for t in sms] == [(t.timestamp, t.category) for t in app]
+    # Amounts too, but for the long trips the app format adds to transport.
+    assert [t.amount_minor for t in sms if t.category != "transport"] == [
+        t.amount_minor for t in app if t.category != "transport"
     ]
     bare = [
         t for t in app if not re.search(r"TILL|PAYBILL|PAY BILL|\*\*\*|MERCHANT|POS TXN", t.payee)
@@ -96,7 +98,33 @@ def test_app_payees_are_mostly_bare_names_and_keep_the_rest_of_the_data() -> Non
 
 
 def test_app_markers_do_not_tell_the_category() -> None:
-    people = {"family_support", "friends_social", "money_received", "support_received"}
+    people = {
+        "family_support",
+        "friends_social",
+        "money_received",
+        "support_received",
+        "gifts_received",
+    }
     big = APP.model_copy(update={"n_users": 60})
     markers = {m for t in generate(big) if t.category in people for m in MARKER.findall(t.payee)}
     assert markers == set(FAKE_MARKERS)
+
+
+def test_app_has_long_trips_salary_credits_and_transfers_from_people() -> None:
+    big = APP.model_copy(update={"n_users": 300})
+    sms, app = generate(big.model_copy(update={"payee_format": "sms"})), generate(big)
+    trips = [
+        (s.amount_minor, a.amount_minor)
+        for s, a in zip(sms, app, strict=True)
+        if a.category == "transport" and a.amount_minor != s.amount_minor
+    ]
+    assert trips
+    assert all(a >= 10 * s for s, a in trips)
+    received = {"money_received", "support_received", "gifts_received"}
+    assert any(
+        t.payee.startswith("CUSTOMER TRANSFER FROM 0700***0") for t in app if t.category in received
+    )
+    assert not any("TRANSFER TO" in t.payee for t in app if t.category in received)
+    salaries = [t.payee for t in app if t.category == "salary"]
+    assert any(p.startswith(("SALARY ", "PAYROLL CREDIT ", "PAY BILL FROM 000")) for p in salaries)
+    assert len(set(salaries)) > 20

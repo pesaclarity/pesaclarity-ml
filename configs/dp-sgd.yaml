@@ -13,9 +13,13 @@ data:
   payee_style: varied
   payee_format: app
   # Not the audits' data (seed 7), so their shadow models do not count against this budget.
-  seed: 2026
+  # Each generator change gets a new set of invented people (and so its own budget): seed 2026
+  # spent 5.82 of its 8.0 on the last model, and 2027 and 2028 on trials of the transport,
+  # salary and money-in forms, so none of them is trained on again.
+  seed: 2029
 training:
-  epochs: 24
+  # 32 epochs (160 steps): epsilon 4.66 at delta 1e-6, within the app track's 8.0.
+  epochs: 32
   # Clipped, noised gradients are small; DP-SGD needs a much larger step than Adam.
   learning_rate: 1.0
 dp:
