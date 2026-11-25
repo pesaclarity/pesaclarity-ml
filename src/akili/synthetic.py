@@ -311,6 +311,21 @@ _BUSINESS_WORDS: dict[str, tuple[str, ...]] = {
     "loan_repayment": ("CREDIT", "LOANS", "FINANCE"),
     "savings": ("SACCO", "CHAMA", "INVESTMENT CLUB"),
 }
+# More words for ``payee_format: app`` only (the sms format keeps its data): the ways statements
+# and ride, bus, rail and air bookings name transport, and the ways employers name a salary.
+# All generic words; none is a business's name.
+_APP_WORDS: dict[str, tuple[str, ...]] = {
+    "transport": ("TAXI", "BODA BODA", "MATATU SACCO", "BUS SERVICE", "COACH", "AIRLINES"),
+    "salary": (
+        "LTD SALARY",
+        "LIMITED PAYROLL",
+        "EMPLOYER LTD",
+        "COMPANY PAYROLL",
+        "LTD NET PAY",
+        "SALARIES",
+        "WAGES",
+    ),
+}
 
 
 def _invented_word(rng: np.random.Generator) -> str:
@@ -332,8 +347,10 @@ class _VariedNames:
         if profile.id_kind == "person":
             person = marker if self._any_marker else "TEST"
             return f"{person} {_invented_word(rng)} {_invented_word(rng)}"
-        words = _BUSINESS_WORDS.get(category)
-        if words is None:
+        words = _BUSINESS_WORDS.get(category, ())
+        if self._any_marker:
+            words = (*words, *_APP_WORDS.get(category, ()))
+        if not words:
             return str(rng.choice(profile.names))
         return f"{marker} {_invented_word(rng)} {rng.choice(words)}"
 
@@ -375,6 +392,42 @@ def _remark(name: str, rng: np.random.Generator) -> str:
     return f"{rng.choice(FAKE_MARKERS)} {rest}"
 
 
+_LONG_TRIP_SHARE = 0.15
+
+# Statement details for money in: a salary credit and a transfer from a person.
+_SALARY_FORMS = (
+    "SALARY {name}",
+    "{name} SALARY",
+    "PAYROLL CREDIT {name}",
+    "PAY BILL FROM 000{n:03d} - {name}",
+)
+_RECEIVED_FORMS = (
+    "CUSTOMER TRANSFER FROM 0700***0{n:02d} - {name}",
+    "FUNDS RECEIVED FROM 0700***0{n:02d} - {name}",
+    "RECEIVED FROM {name}",
+)
+
+
+def _form(forms: tuple[str, ...], rng: np.random.Generator, name: str, n: int) -> str:
+    form = forms[0] if len(forms) == 1 else str(rng.choice(forms))
+    return form.format(name=name, n=n)
+
+
+def _details(profile: _Profile) -> tuple[str, ...]:
+    """A statement's details column for ``profile``'s payees."""
+    match profile.id_kind:
+        case "till":
+            return ("MERCHANT PAYMENT TO {name}", "POS TXN {name}", "{name}")
+        case "paybill":
+            return ("PAY BILL TO 000{n:03d} - {name}",)
+        case "person" if profile.direction is Direction.IN:
+            return _RECEIVED_FORMS
+        case "person":
+            return ("CUSTOMER TRANSFER TO 0700***0{n:02d} - {name}",)
+        case "none":
+            return _SALARY_FORMS if profile is PROFILES["salary"] else ("{name}",)
+
+
 def _app_payee(profile: _Profile, rng: np.random.Generator, name: str) -> str:
     """What the app's categoriser is given for a transaction with payee ``name``: mostly the
     name as the SMS and statement readers parse it, else a statement's details column or the
@@ -382,17 +435,10 @@ def _app_payee(profile: _Profile, rng: np.random.Generator, name: str) -> str:
     name = _remark(name, rng)
     n = int(rng.integers(1, 100))
     roll = rng.random()
-    if roll < 0.6 or profile.id_kind == "none":
+    if roll < 0.6:
         return name
-    if roll < 0.85:
-        match profile.id_kind:
-            case "till":
-                form = rng.choice(("MERCHANT PAYMENT TO {name}", "POS TXN {name}", "{name}"))
-                return str(form).format(name=name)
-            case "paybill":
-                return f"PAY BILL TO 000{n:03d} - {name}"
-            case "person":
-                return f"CUSTOMER TRANSFER TO 0700***0{n:02d} - {name}"
+    if roll < 0.85 or profile.id_kind == "none":
+        return _form(_details(profile), rng, name, n) if roll < 0.85 else name
     return _payee(profile, rng, name)
 
 
@@ -440,6 +486,9 @@ def generate(cfg: SyntheticDataConfig, categories: CategorySet | None = None) ->
             payee = _payee(profile, rng, name)
             if app:
                 payee = _app_payee(profile, forms, name)
+                # Some trips are long ones (a coach, a train, a flight), at many times the fare.
+                if category == "transport" and forms.random() < _LONG_TRIP_SHARE:
+                    amount_kes *= int(forms.integers(10, 40))
             out.append(
                 Transaction(
                     payee=payee,
