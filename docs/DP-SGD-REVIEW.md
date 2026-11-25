@@ -21,6 +21,17 @@ Some terms used below:
 * **Poisson sampling**: each step, every example joins the batch independently with probability
   q. Batch sizes vary.
 
+## 2026-11-25: `dp-sgd` on payees as the app gives them
+
+The loop and accountant are unchanged. `dp-sgd` and `audit-dp-sgd` now sample 400 people a
+step (q 0.2) with σ 3.0 for 24 epochs (120 steps): RDP ε **4.007** (PRV 3.714) at δ 1e-6, from
+2.666, within the app track's 8.0. The data is harder (names without their till numbers), and
+more people a step was what kept the model useful under the noise
+([CATEGORISER.md](CATEGORISER.md#statement-payees)). The table below is the record of the figures
+dp-accounting signed off for the old settings, and `accountants.v1.json` keeps it as it was
+(every signed-off figure is kept); the new settings have no dp-accounting figure (dp-accounting
+is no longer installed), only Opacus's, which `akili epsilon` and the gate use.
+
 ## 2026-11-19: the PyTorch loop and Opacus
 
 Reviewed against PyTorch 2.15.0 (CPU), Opacus 1.6.0, dp-accounting 0.6.0 and Python 3.12.13.
