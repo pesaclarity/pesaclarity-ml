@@ -99,6 +99,26 @@ audit-dp-sgd (DP-SGD, epsilon 2.67)
   PASS
 ```
 
+On 2026-11-25 both configs moved to payees as the app gives them (`payee_format: app`), and
+`audit-dp-sgd` to `dp-sgd`'s new settings (400 people a step, σ 3.0, 24 epochs: epsilon 4.01;
+[CATEGORISER.md](CATEGORISER.md#statement-payees)). The baseline still fails and the DP-SGD model
+is still at chance:
+
+```text
+audit-no-dp (no DP)
+  loss           0.589     0.571-0.606  0.126     0.20%    1.70%  2000+2000
+  lira-online    0.642     0.625-0.659  0.201     4.85%    7.80%  2000+2000
+  lira-offline   0.639     0.622-0.656  0.197     2.35%    6.45%  2000+2000
+  FAIL
+audit-dp-sgd (DP-SGD, epsilon 4.01)
+  loss           0.505     0.487-0.523  0.028     0.30%    1.55%  2000+2000
+  lira-online    0.498     0.480-0.516  0.031     0.00%    0.60%  2000+2000
+  lira-offline   0.503     0.485-0.521  0.025     0.15%    0.90%  2000+2000
+  PASS
+```
+
+The figures before, with the SMS-form payees and the old settings (epsilon 2.67), are above.
+
 The Keras categoriser's TFLite file, with the same data, configs and seeds (2026-11-04,
 reproduced on 2026-11-19 at cb27820):
 

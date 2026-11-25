@@ -10,6 +10,7 @@ data:
   n_users: 2500
   transactions_per_user: 20
   payee_style: varied
+  payee_format: app
 training:
   epochs: 5
   batch_size: 64

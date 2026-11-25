@@ -68,3 +68,35 @@ def test_basic_style_is_unchanged_by_default() -> None:
     assert (
         generate(CFG)[0].payee == generate(CFG.model_copy(update={"payee_style": "basic"}))[0].payee
     )
+
+
+APP = CFG.model_copy(update={"payee_style": "varied", "payee_format": "app"})
+MARKER = re.compile(r"\b(?:DEMO|SAMPLE|FAKE|TEST)\b")
+
+
+def test_app_payees_are_fake() -> None:
+    for tx in generate(APP):
+        assert MARKER.search(tx.payee), tx.payee
+        assert not REAL_LOOKING_PHONE.search(tx.payee), tx.payee
+        for number in re.findall(r"\d+", tx.payee.replace("0700***0", "")):
+            assert number.startswith("00") or len(number) <= 2, tx.payee
+
+
+def test_app_payees_are_mostly_bare_names_and_keep_the_rest_of_the_data() -> None:
+    sms, app = generate(APP.model_copy(update={"payee_format": "sms"})), generate(APP)
+    assert [(t.amount_minor, t.timestamp, t.category) for t in sms] == [
+        (t.amount_minor, t.timestamp, t.category) for t in app
+    ]
+    bare = [
+        t for t in app if not re.search(r"TILL|PAYBILL|PAY BILL|\*\*\*|MERCHANT|POS TXN", t.payee)
+    ]
+    assert len(bare) > len(app) / 2
+    assert any(t.payee.startswith("MERCHANT PAYMENT TO ") for t in app)
+    assert any(t.payee.startswith("PAY BILL TO 000") for t in app)
+
+
+def test_app_markers_do_not_tell_the_category() -> None:
+    people = {"family_support", "friends_social", "money_received", "support_received"}
+    big = APP.model_copy(update={"n_users": 60})
+    markers = {m for t in generate(big) if t.category in people for m in MARKER.findall(t.payee)}
+    assert markers == set(FAKE_MARKERS)

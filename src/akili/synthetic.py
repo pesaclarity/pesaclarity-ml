@@ -7,6 +7,11 @@ derived from, real data. Never replace it with real messages.
 With ``payee_style: varied`` the names are built from random syllables (``DEMO KALIMO GROCERS``,
 ``TEST WANDERU ZIKOTA``), so each user gets their own long tail of merchants and people, as on a
 real statement. The words are generated, not taken from any list of real businesses or people.
+
+With ``payee_format: app`` the payee is what the app's categoriser reads (``SyntheticDataConfig``):
+the name alone (``DEMO GROCERS``), a statement's details (``MERCHANT PAYMENT TO DEMO GROCERS``,
+``PAY BILL TO 000012 - DEMO ENERGY``, ``CUSTOMER TRANSFER TO 0700***012 - TEST KALI MOTE``) or
+the SMS form, with any fake marker on any category.
 """
 
 from __future__ import annotations
@@ -316,15 +321,17 @@ def _invented_word(rng: np.random.Generator) -> str:
 class _VariedNames:
     """Per-user favourite payees, a few shared popular ones and occasional one-offs."""
 
-    def __init__(self, rng: np.random.Generator) -> None:
+    def __init__(self, rng: np.random.Generator, any_marker: bool = False) -> None:
         self._rng = rng
+        self._any_marker = any_marker
         self._favourites: dict[tuple[int, str], list[str]] = {}
 
     def _invent(self, category: str, profile: _Profile) -> str:
         rng = self._rng
-        marker = str(rng.choice(FAKE_MARKERS[:3]))
+        marker = str(rng.choice(FAKE_MARKERS if self._any_marker else FAKE_MARKERS[:3]))
         if profile.id_kind == "person":
-            return f"TEST {_invented_word(rng)} {_invented_word(rng)}"
+            person = marker if self._any_marker else "TEST"
+            return f"{person} {_invented_word(rng)} {_invented_word(rng)}"
         words = _BUSINESS_WORDS.get(category)
         if words is None:
             return str(rng.choice(profile.names))
@@ -359,6 +366,36 @@ def _payee(profile: _Profile, rng: np.random.Generator, name: str | None = None)
             return name
 
 
+def _remark(name: str, rng: np.random.Generator) -> str:
+    """``name`` with its fake marker drawn afresh from all four, so no marker goes with one
+    category (the fixed names keep their marker otherwise: ``TEST PERSON`` is every person)."""
+    head, _, rest = name.partition(" ")
+    if head not in FAKE_MARKERS or not rest:
+        return name
+    return f"{rng.choice(FAKE_MARKERS)} {rest}"
+
+
+def _app_payee(profile: _Profile, rng: np.random.Generator, name: str) -> str:
+    """What the app's categoriser is given for a transaction with payee ``name``: mostly the
+    name as the SMS and statement readers parse it, else a statement's details column or the
+    SMS form (:func:`_payee`)."""
+    name = _remark(name, rng)
+    n = int(rng.integers(1, 100))
+    roll = rng.random()
+    if roll < 0.6 or profile.id_kind == "none":
+        return name
+    if roll < 0.85:
+        match profile.id_kind:
+            case "till":
+                form = rng.choice(("MERCHANT PAYMENT TO {name}", "POS TXN {name}", "{name}"))
+                return str(form).format(name=name)
+            case "paybill":
+                return f"PAY BILL TO 000{n:03d} - {name}"
+            case "person":
+                return f"CUSTOMER TRANSFER TO 0700***0{n:02d} - {name}"
+    return _payee(profile, rng, name)
+
+
 def _timestamp(profile: _Profile, rng: np.random.Generator) -> datetime:
     month = int(rng.integers(0, 3))
     lo, hi = profile.month_days
@@ -379,9 +416,14 @@ def generate(cfg: SyntheticDataConfig, categories: CategorySet | None = None) ->
     cats = categories or default_categories()
     labels = [c for c in cats.labels if c in PROFILES]
     rng = np.random.default_rng(cfg.seed)
+    app = cfg.payee_format == "app"
     varied = (
-        _VariedNames(np.random.default_rng([cfg.seed, 1])) if cfg.payee_style == "varied" else None
+        _VariedNames(np.random.default_rng([cfg.seed, 1]), any_marker=app)
+        if cfg.payee_style == "varied"
+        else None
     )
+    # Its own stream, so the amounts, times and labels are the sms format's.
+    forms = np.random.default_rng([cfg.seed, 2])
     out: list[Transaction] = []
     for u in range(cfg.n_users):
         user_id = f"synthetic-user-{u:05d}"
@@ -393,11 +435,14 @@ def generate(cfg: SyntheticDataConfig, categories: CategorySet | None = None) ->
             label = category
             if rng.random() < cfg.label_noise:
                 label = labels[int(rng.integers(0, len(labels)))]
+            # The name is drawn before _payee's number, as _payee draws it.
+            name = varied.pick(u, category, profile) if varied else str(rng.choice(profile.names))
+            payee = _payee(profile, rng, name)
+            if app:
+                payee = _app_payee(profile, forms, name)
             out.append(
                 Transaction(
-                    payee=_payee(
-                        profile, rng, varied.pick(u, category, profile) if varied else None
-                    ),
+                    payee=payee,
                     amount_minor=max(amount_kes, 1) * 100,
                     direction=profile.direction,
                     timestamp=_timestamp(profile, rng),

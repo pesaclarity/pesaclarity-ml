@@ -26,6 +26,13 @@ class SyntheticDataConfig(_Strict):
     """``basic`` draws from a few dozen fixed payee names. ``varied`` invents a long tail of
     per-user merchants and people, closer to real statements and a harder test of memorisation
     for the membership-inference audit."""
+    payee_format: Literal["sms", "app"] = "sms"
+    """``sms`` writes every payee with its till, paybill or phone, as M-PESA's SMS prints them
+    (``DEMO GROCERS TILL 000012``). ``app`` writes what the app's categoriser is given: the
+    counterparty's name alone, as the app's SMS and statement readers parse it, and sometimes a
+    statement's whole details column (``MERCHANT PAYMENT TO DEMO GROCERS``, ``PAY BILL TO 000012
+    - DEMO ENERGY``) or the SMS form. Every category's names then take any of the fake markers,
+    so neither the marker nor the number suffix tells the category."""
 
 
 class FeatureConfig(_Strict):

@@ -10,15 +10,16 @@ data:
   n_users: 2500
   transactions_per_user: 20
   payee_style: varied
+  payee_format: app
 training:
-  epochs: 8
-  learning_rate: 0.5
+  epochs: 24
+  learning_rate: 1.0
 dp:
   enabled: true
   unit: user
-  users_per_step: 100
+  users_per_step: 400
   l2_norm_clip: 1.0
-  noise_multiplier: 1.5
+  noise_multiplier: 3.0
   target_delta: 1.0e-6
   noise_seed: 1001
 export:

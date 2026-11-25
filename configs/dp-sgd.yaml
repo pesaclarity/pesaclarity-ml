@@ -1,5 +1,5 @@
 # Centralised DP-SGD on synthetic data; prints and logs the user-level budget (epsilon, delta).
-# Each step samples about 100 of the 2,000 training people; each person's examples give one
+# Each step samples about 400 of the 2,000 training people; each person's examples give one
 # gradient, clipped to l2_norm_clip, so the budget covers everything a person contributed.
 # No noise_seed: the noise comes from OS entropy, as it must for real data.
 name: dp-sgd
@@ -8,16 +8,22 @@ seed: 42
 data:
   n_users: 2500
   transactions_per_user: 20
+  # What the app gives the categoriser: names as its SMS and statement readers parse them,
+  # statement details, and the SMS form, from a long tail of invented merchants and people.
+  payee_style: varied
+  payee_format: app
+  # Not the audits' data (seed 7), so their shadow models do not count against this budget.
+  seed: 2026
 training:
-  epochs: 8
+  epochs: 24
   # Clipped, noised gradients are small; DP-SGD needs a much larger step than Adam.
-  learning_rate: 0.5
+  learning_rate: 1.0
 dp:
   enabled: true
   unit: user
-  users_per_step: 100
+  users_per_step: 400
   l2_norm_clip: 1.0
-  noise_multiplier: 1.5
+  noise_multiplier: 3.0
   target_delta: 1.0e-6
 export:
   max_size_bytes: 512000

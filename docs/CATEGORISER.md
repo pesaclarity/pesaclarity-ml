@@ -99,6 +99,81 @@ With the same noise seed, every one of the ten DP-SGD runs is above the Keras on
 ([PRIVACY-AUDIT.md](PRIVACY-AUDIT.md#reading-the-numbers)). Scores are on synthetic data; real
 transactions will score lower.
 
+## Statement payees
+
+*2026-11-25.* The app gives the categoriser the counterparty's name as its readers parse it:
+`EXAMPLE GROCERS` from an M-PESA till SMS, `EXAMPLE SUPERMARKET` from a KCB statement's POS
+line, and, where a statement's line is not split, its whole details column (`MERCHANT PAYMENT
+TO ...`, `PAY BILL TO 000123 - ...`). The features are the same for SMS and statement rows. But
+every payee the generator wrote ended in its till, paybill or phone (`DEMO GROCERS TILL
+000012`, `TEST PERSON 12 0700***012`); only airtime, charges and Fuliza repayments had none,
+and only people had `TEST`. The model learnt those suffixes and markers as the category: a name
+without a number read as airtime, fees or Fuliza, `GROCERS` alone as airtime (1.00), and a word
+it never saw (`EXAMPLE`, `NAIVAS`) landed on token rows the DP noise had moved, so the web
+analyser's parity tests on the app's synthetic statements found grocers as family support and
+fuel stations as Fuliza repayments.
+
+`payee_format: app` (`SyntheticDataConfig`) writes what the app gives: the name alone 60% of the
+time, a statement's details 25% (`MERCHANT PAYMENT TO`, `POS TXN`, `PAY BILL TO 000nnn -`,
+`CUSTOMER TRANSFER TO 0700***0nn -`) and the SMS form 15%, with any of the four fake markers on
+any category. The amounts, times and labels are the `sms` format's (the forms take their own
+random stream). `dp-sgd` and both audit configs use it with `payee_style: varied`.
+
+The harder data needed more signal per step: DP-SGD with the old settings scored 0.68 on it.
+On scratch datasets with seeded noise, more people per step and more steps were what helped
+(weight decay on the noisy steps, tried to hold unused token rows near zero, cost 25 to 65
+points):
+
+| `dp-sgd` settings | ε (δ 1e-6) | held-out people | statement payees |
+| --- | --- | --- | --- |
+| 100 people a step, σ 1.5, 8 epochs, lr 0.5 (before) | 2.67 | 0.68 to 0.73 | 0.39 to 0.66 |
+| 400, σ 3.0, 16 epochs, lr 1.0 | 3.24 | 0.78 to 0.79 | 0.73 to 0.74 |
+| **400, σ 3.0, 24 epochs, lr 1.0 (shipped)**, four noise seeds | **4.01** | **0.85 to 0.86** | **0.76 to 0.87** |
+| 400, σ 3.0, 32 epochs, lr 1.0 | 4.66 | 0.86 | 0.87 |
+
+ε 4.01 is within the app track's signed-off 8.0 (`tracks.yaml`, unchanged); the run's data
+(seed 2026, not the audits' seed 7) has spent 5.82 over the two runs on it. The audit of the same
+settings passes (`audit-dp-sgd`, 16 shadow models, ε 4.01): loss AUC 0.505, LiRA online 0.498,
+offline 0.503, the largest advantage 0.031, TPR at 1% FPR 1.55% at most and at 0.1% 0.30%.
+
+The shipped run (`dp-sgd`, noise from OS entropy), against the model it replaces, on the
+`dp-sgd` data's held-out people in each format and on `akili statement-eval`'s 246 invented
+statement rows (markers `EXAMPLE` and `MFANO` and words the generator never writes; people count
+as right in any person category):
+
+| | before | after |
+| --- | --- | --- |
+| held-out people, `payee_format: app` | 0.341 | **0.849** |
+| held-out people, `payee_format: sms` (varied) | 0.625 | **0.867** |
+| statement payees | 0.122 | **0.813** |
+
+Per category on the statement payees (precision / recall):
+
+| | before | after |
+| --- | --- | --- |
+| groceries | 0.20 / 0.03 | 1.00 / 0.60 |
+| fuel | 0.11 / 0.08 | 0.69 / 1.00 |
+| eating_out | 0.17 / 0.04 | 0.96 / 0.92 |
+| snacks | 0.00 / 0.00 | 0.95 / 1.00 |
+| transport | 1.00 / 0.11 | 1.00 / 0.17 |
+| utilities | 0.00 / 0.00 | 1.00 / 0.75 |
+| school_fees | 0.07 / 0.08 | 1.00 / 0.83 |
+| health | 0.00 / 0.00 | 1.00 / 0.96 |
+| rent | 0.50 / 0.25 | 1.00 / 0.88 |
+| shopping | 0.00 / 0.00 | 0.90 / 1.00 |
+| lifestyle | 0.19 / 0.39 | 0.84 / 0.89 |
+| giving | 0.00 / 0.00 | 0.35 / 1.00 |
+| savings | 1.00 / 0.50 | 1.00 / 0.75 |
+| loan_repayment | 0.00 / 0.00 | 0.57 / 1.00 |
+| salary | 1.00 / 1.00 | 1.00 / 0.50 |
+
+And per category on the held-out people (`app` format), every one of the 27 rose: groceries
+0.33 / 0.24 to 0.81 / 0.78, fuel 0.10 / 0.21 to 0.83 / 0.90, family support 0.09 / 0.15 to 0.77 /
+0.63; the weakest after are the four kinds of money from people (money received 0.47 / 0.49,
+gifts 0.67 / 0.54), which only the amount and time tell apart. Real payees will score lower; the
+app's rules name well-known shops and stations (Naivas, Quickmart, Carrefour, Shell, Rubis,
+TotalEnergies and others) before the model runs.
+
 ## Parity
 
 The export fails unless `categoriser.weights` is close to the torch model's float
