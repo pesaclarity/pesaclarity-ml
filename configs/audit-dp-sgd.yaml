@@ -12,7 +12,7 @@ data:
   payee_style: varied
   payee_format: app
 training:
-  epochs: 24
+  epochs: 32
   learning_rate: 1.0
 dp:
   enabled: true

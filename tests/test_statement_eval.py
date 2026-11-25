@@ -32,3 +32,16 @@ def test_score_counts_per_category() -> None:
     report = score(lambda x: groceries[: len(x)], FeatureConfig())
     assert report["categories"]["groceries"]["recall"] == 1.0
     assert report["categories"]["fuel"]["recall"] == 0.0
+
+
+def test_people_count_within_their_direction() -> None:
+    labels = list(default_categories().labels)
+    data = rows()
+    assert sum(r.category == "transport" for r in data) >= 50
+    assert sum(r.category == "salary" for r in data) >= 20
+    assert any(r.payee.startswith("CUSTOMER TRANSFER FROM 0700***0") for r in data)
+    got = np.zeros((len(data), len(labels)), np.float32)
+    got[:, labels.index("gifts_received")] = 1
+    people = score(lambda x: got[: len(x)], FeatureConfig())["people"]
+    assert people["received_from_people"]["accuracy"] == 1.0
+    assert people["sent_to_people"]["accuracy"] == 0.0

@@ -21,6 +21,15 @@ Some terms used below:
 * **Poisson sampling**: each step, every example joins the batch independently with probability
   q. Batch sizes vary.
 
+## 2026-11-25, later: 32 epochs on a new dataset
+
+`dp-sgd` and `audit-dp-sgd` now run 32 epochs (160 steps) at the same 400 people a step and σ
+3.0: RDP ε **4.66** (PRV 4.33) at δ 1e-6, within the app track's 8.0. The ledger's limit is on
+everything spent on one dataset, so `dp-sgd` moved to new invented people (seed 2029) rather
+than spend more of seed 2026, whose total was 5.82
+([CATEGORISER.md](CATEGORISER.md#transport-salary-and-money-from-people)). The loop, the
+accountant, `tracks.yaml` and `accountants.v1.json` are unchanged.
+
 ## 2026-11-25: `dp-sgd` on payees as the app gives them
 
 The loop and accountant are unchanged. `dp-sgd` and `audit-dp-sgd` now sample 400 people a

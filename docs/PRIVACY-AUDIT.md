@@ -119,6 +119,22 @@ audit-dp-sgd (DP-SGD, epsilon 4.01)
 
 The figures before, with the SMS-form payees and the old settings (epsilon 2.67), are above.
 
+Later on 2026-11-25 the app format gained transport, salary and money-in forms, and both DP-SGD
+configs went to 32 epochs (epsilon 4.66; [CATEGORISER.md](CATEGORISER.md#transport-salary-and-money-from-people)):
+
+```text
+audit-no-dp (no DP)
+  loss           0.585     0.567-0.602  0.118     0.00%    1.35%  2000+2000
+  lira-online    0.643     0.626-0.660  0.198     3.05%    6.20%  2000+2000
+  lira-offline   0.660     0.643-0.677  0.233     2.35%    4.60%  2000+2000
+  FAIL
+audit-dp-sgd (DP-SGD, epsilon 4.66)
+  loss           0.514     0.496-0.532  0.041     0.00%    1.50%  2000+2000
+  lira-online    0.497     0.479-0.515  0.019     0.00%    0.45%  2000+2000
+  lira-offline   0.517     0.500-0.535  0.034     0.00%    0.70%  2000+2000
+  PASS
+```
+
 The Keras categoriser's TFLite file, with the same data, configs and seeds (2026-11-04,
 reproduced on 2026-11-19 at cb27820):
 

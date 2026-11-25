@@ -128,8 +128,8 @@ points):
 | --- | --- | --- | --- |
 | 100 people a step, σ 1.5, 8 epochs, lr 0.5 (before) | 2.67 | 0.68 to 0.73 | 0.39 to 0.66 |
 | 400, σ 3.0, 16 epochs, lr 1.0 | 3.24 | 0.78 to 0.79 | 0.73 to 0.74 |
-| **400, σ 3.0, 24 epochs, lr 1.0 (shipped)**, four noise seeds | **4.01** | **0.85 to 0.86** | **0.76 to 0.87** |
-| 400, σ 3.0, 32 epochs, lr 1.0 | 4.66 | 0.86 | 0.87 |
+| **400, σ 3.0, 24 epochs, lr 1.0 (shipped then)**, four noise seeds | **4.01** | **0.85 to 0.86** | **0.76 to 0.87** |
+| 400, σ 3.0, 32 epochs, lr 1.0 (shipped since [the section below](#transport-salary-and-money-from-people)) | 4.66 | 0.86 | 0.87 |
 
 ε 4.01 is within the app track's signed-off 8.0 (`tracks.yaml`, unchanged); the run's data
 (seed 2026, not the audits' seed 7) has spent 5.82 over the two runs on it. The audit of the same
@@ -173,6 +173,96 @@ And per category on the held-out people (`app` format), every one of the 27 rose
 gifts 0.67 / 0.54), which only the amount and time tell apart. Real payees will score lower; the
 app's rules name well-known shops and stations (Naivas, Quickmart, Carrefour, Shell, Rubis,
 TotalEnergies and others) before the model runs.
+
+## Transport, salary and money from people
+
+*2026-11-25, later.* After the statement-payee model, `akili statement-eval` still found
+transport at a recall of 0.17 and salary at 0.50, and on held-out people the four kinds of money
+from people were the weakest. What the rows looked like and what they were taken for (the
+shipped model, on the set below and on held-out `dp-sgd` people):
+
+- **Transport** (`EXAMPLE TAXI RIDES`, `POS TXN MFANO TUMAINI SHUTTLE`, `EXAMPLE MATATU SACCO`):
+  taken for giving (20 of 54), fuel (14) and groceries (6). The generator named transport with
+  four words only (`SACCO`, `SHUTTLE`, `RIDES`, `COURIERS`; `SACCO` is savings too), so a taxi,
+  boda boda, coach or airline was a word it never saw, and every fare was a matatu fare (KES 150).
+- **Salary** (`EXAMPLE EMPLOYER LTD`, `PAY BILL FROM 000272 - EXAMPLE COMPANY PAYROLL`): taken for
+  business income. Salary was the one category the varied names left alone: three fixed names,
+  never a statement's wording.
+- **Money from people**: on the statement set every one landed in a received category; on held-out
+  people the errors are between the four (gifts as money received 130, money received as support
+  77 and as gifts 75), which only the amount and the time tell apart.
+
+`payee_format: app` now also writes (made-up words only): transport as a taxi, boda boda, matatu
+SACCO, bus service, coach or airline, and 15% of trips long ones (a coach, a train, a flight) at
+10 to 40 times the fare; salary with invented employers (`... LTD SALARY`, `... LIMITED PAYROLL`,
+`... LTD NET PAY`, `WAGES`) and statement credits (`SALARY ...`, `PAYROLL CREDIT ...`, `PAY BILL
+FROM 000nnn - ...`); and money in from people as a statement words it (`CUSTOMER TRANSFER FROM
+0700***0nn - ...`, `FUNDS RECEIVED FROM ...`, `RECEIVED FROM ...`), not `TRANSFER TO`. The `sms`
+format's data is unchanged.
+
+`akili statement-eval` has 302 rows (from 246): taxi, shuttle, matatu, boda, cab and bus rows,
+long trips (railway, airline, coach tickets at KES 4,500), salary credits (`LTD SALARY`, `LIMITED
+NET PAY`, `PAYROLL`, from a paybill) and eight transfers from people, still with the markers
+`EXAMPLE` and `MFANO` and words the generator never writes. Money to people counts as right in
+either sent category and money from people in any received one; `people` reports both.
+
+**Privacy budget.** The ledger composes every run on the same dataset (`synthetic_dataset_id`,
+a hash of the data settings), and the gate checks that total against the track's limit, so the
+cap is cumulative per dataset, not per run. Seed 2026 had spent 5.82 of the app track's 8.0;
+one more run of these settings on it would compose past 8.0. Each generator change is a new set
+of invented people, so `dp-sgd` moved to a new seed with a budget of its own: 2027 and 2028 were
+spent on trials of the forms above (24 epochs: 0.76 and 0.66 on the statement set, with
+groceries and health down), and 2029, with 32 epochs (ε **4.66** at δ 1e-6, PRV 4.33; one run,
+so the data's total is 4.66), is the shipped run. `tracks.yaml` and `accountants.v1.json` are
+unchanged.
+
+The full audit of the same settings and data forms passes (`audit-dp-sgd`, 16 shadow models,
+32 epochs, ε 4.66): loss AUC 0.514, LiRA online 0.497, offline 0.517, the largest advantage
+0.041, TPR at 1% FPR 1.50% at most and at 0.1% 0.00%. The no-DP baseline still fails (LiRA
+offline AUC 0.660), as it should. The quick (CI-only) audit now trains at most 24 epochs: with its 40 people, 32
+epochs of noise moved the int8 file 0.60 from torch, past even its wider parity limits.
+
+Before (the model from the section above) and after, on the same rows: the new statement set,
+and held-out people of the new generator with seed 2026 (people neither model was trained on)
+and seed 2029 (`dp-sgd`'s own held-out people). Precision / recall:
+
+| | statement set | held-out, seed 2026 | held-out, seed 2029 |
+| --- | --- | --- | --- |
+| accuracy | 0.722 → **0.818** | 0.825 → **0.862** | 0.832 → **0.863** |
+| airtime_data |  | 0.96 / 0.98 → 0.98 / 0.99 | 0.95 / 0.99 → 0.97 / 0.99 |
+| allowance_bursary |  | 0.82 / 0.96 → 0.94 / 0.97 | 0.83 / 0.96 → 0.96 / 0.97 |
+| betting |  | 0.89 / 0.92 → 0.91 / 0.97 | 0.90 / 0.94 → 0.93 / 0.96 |
+| business_income |  | 0.82 / 0.88 → 0.88 / 0.89 | 0.81 / 0.89 → 0.90 / 0.91 |
+| eating_out | 0.88 / 0.92 → 0.71 / 0.83 | 0.87 / 0.91 → 0.83 / 0.88 | 0.85 / 0.90 → 0.82 / 0.92 |
+| family_support |  | 0.72 / 0.62 → 0.77 / 0.55 | 0.76 / 0.62 → 0.74 / 0.52 |
+| fees_charges |  | 0.93 / 0.96 → 0.97 / 0.96 | 0.94 / 0.98 → 0.97 / 0.98 |
+| friends_social |  | 0.65 / 0.61 → 0.71 / 0.58 | 0.69 / 0.67 → 0.70 / 0.64 |
+| fuel | 0.49 / 1.00 → 0.88 / 0.88 | 0.84 / 0.91 → 0.82 / 0.90 | 0.86 / 0.89 → 0.85 / 0.92 |
+| fuliza_repayment |  | 0.96 / 0.98 → 0.98 / 0.98 | 0.94 / 0.97 → 0.95 / 0.97 |
+| gifts_received |  | 0.63 / 0.49 → 0.63 / 0.57 | 0.58 / 0.47 → 0.58 / 0.56 |
+| giving | 0.27 / 1.00 → 0.35 / 1.00 | 0.83 / 0.85 → 0.93 / 0.93 | 0.84 / 0.85 → 0.96 / 0.91 |
+| groceries | 0.75 / 0.60 → 0.95 / 0.70 | 0.81 / 0.75 → 0.89 / 0.89 | 0.81 / 0.75 → 0.87 / 0.86 |
+| health | 0.89 / 0.96 → 0.96 / 0.96 | 0.82 / 0.90 → 0.87 / 0.93 | 0.87 / 0.93 → 0.89 / 0.93 |
+| lifestyle | 0.84 / 0.89 → 1.00 / 1.00 | 0.76 / 0.81 → 0.87 / 0.89 | 0.77 / 0.82 → 0.88 / 0.93 |
+| loan_repayment | 0.57 / 1.00 → 0.78 / 0.88 | 0.90 / 0.91 → 0.92 / 0.94 | 0.90 / 0.90 → 0.93 / 0.92 |
+| money_received |  | 0.43 / 0.49 → 0.44 / 0.38 | 0.47 / 0.49 → 0.48 / 0.40 |
+| rent | 1.00 / 0.88 → 0.89 / 1.00 | 0.93 / 0.94 → 0.93 / 0.97 | 0.94 / 0.95 → 0.94 / 0.97 |
+| salary | 1.00 / 0.65 → 0.95 / 1.00 | 0.94 / 0.87 → 0.95 / 0.97 | 0.95 / 0.83 → 0.95 / 0.98 |
+| savings | 1.00 / 0.75 → 0.88 / 0.88 | 0.92 / 0.93 → 0.92 / 0.96 | 0.92 / 0.90 → 0.92 / 0.95 |
+| school_fees | 1.00 / 0.83 → 1.00 / 0.75 | 0.87 / 0.92 → 0.91 / 0.91 | 0.93 / 0.94 → 0.94 / 0.92 |
+| shopping | 0.90 / 1.00 → 1.00 / 0.94 | 0.84 / 0.82 → 0.89 / 0.93 | 0.85 / 0.84 → 0.89 / 0.92 |
+| snacks | 0.95 / 1.00 → 1.00 / 1.00 | 0.88 / 0.88 → 0.88 / 0.94 | 0.85 / 0.87 → 0.89 / 0.90 |
+| support_received |  | 0.59 / 0.55 → 0.61 / 0.72 | 0.65 / 0.64 → 0.65 / 0.74 |
+| tax |  | 0.94 / 0.97 → 0.95 / 0.96 | 0.95 / 0.98 → 0.96 / 0.97 |
+| transport | 1.00 / 0.07 → 0.94 / 0.56 | 0.81 / 0.58 → 0.89 / 0.77 | 0.79 / 0.61 → 0.81 / 0.78 |
+| utilities | 1.00 / 0.75 → 1.00 / 0.75 | 0.84 / 0.92 → 0.89 / 0.95 | 0.85 / 0.94 → 0.94 / 0.95 |
+| money to people (statement, 4 rows) | 0.75 → 0.50 | | |
+| money from people (statement, 8 rows) | 1.00 → 0.75 | | |
+
+The four kinds of money from people trade among themselves: support received and gifts rose,
+money received and family support lost recall while their precision held or rose. The app now
+narrows the model to the received categories for money from a person (pesaclarity-app), and
+names transport operators and salary wording before the model runs.
 
 ## Parity
 

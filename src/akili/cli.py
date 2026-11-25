@@ -506,6 +506,8 @@ def _statement_eval(args: argparse.Namespace) -> int:
     print(f"statement payees: accuracy {report['accuracy']} on {report['rows']} rows")
     for name, c in report["categories"].items():
         print(f"  {name:18} precision {c['precision']:.2f}  recall {c['recall']:.2f}")
+    for name, c in report["people"].items():
+        print(f"  {name:20} accuracy {c['accuracy']:.2f} on {c['rows']} rows")
     return 0
 
 
