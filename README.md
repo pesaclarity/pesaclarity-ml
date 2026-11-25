@@ -60,7 +60,11 @@ PyTorch and shipped as rayo's int8 `categoriser.weights` (75,776 bytes, against 
 in the configs; no TFLite file). The app fine-tunes its two dense layers on the person's own
 choices by the step in [docs/FINE-TUNING.md](docs/FINE-TUNING.md). On the configs' held-out
 synthetic people it scores level with or above the Keras model it replaced on every config
-(DP-SGD per person: 0.932 against 0.923, the mean over ten noise seeds).
+(DP-SGD per person: 0.932 against 0.923, the mean over ten noise seeds). Since 2026-11-25
+`dp-sgd` trains on payees as the app gives them (`payee_format: app`: the name alone, or a
+statement's details column), where the model before scored 0.34 and the new one 0.85; on the
+invented statement-payee set (`akili statement-eval`) 0.12 before and 0.81 after
+([docs/CATEGORISER.md](docs/CATEGORISER.md#statement-payees)).
 The app must reproduce [`features.py`](src/akili/features.py) exactly in Dart; it uses FNV-1a
 hashing so no payee vocabulary ships with the model. [docs/FEATURES.md](docs/FEATURES.md) is the
 language-neutral spec, and
@@ -155,7 +159,7 @@ will score lower; the app falls back to "Sorry, I did not get that" when the rea
 | Config | What it runs |
 | --- | --- |
 | `configs/smoke.yaml` | Centralised training, no DP. Fast check that everything works. |
-| `configs/dp-sgd.yaml` | Centralised DP-SGD per person; reports user-level epsilon and delta. |
+| `configs/dp-sgd.yaml` | Centralised DP-SGD per person on payees as the app gives them; reports user-level epsilon and delta. What ships. |
 | `configs/audit-no-dp.yaml` | Membership-inference audit baseline: varied payees, no DP. Fails. |
 | `configs/audit-dp-sgd.yaml` | The same data and model with DP-SGD, audited with 16 shadow models. |
 | `configs/federated-smoke.yaml` | Federated simulation without update noise; mechanics only. |

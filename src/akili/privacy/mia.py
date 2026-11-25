@@ -175,12 +175,22 @@ def quick_config(cfg: ExperimentConfig) -> ExperimentConfig:
     """A small, CPU-friendly version of ``cfg`` for CI and tests (seconds to a minute or two).
 
     Too few candidates to meet any track's ``min_audit_examples``, so a quick audit never passes
-    the gate; it checks that the attack runs and moves in the right direction.
+    the gate; it checks that the attack runs and moves in the right direction. With 40 people
+    every step samples them all, so the DP noise per person is far larger than at full size and
+    the int8 file strays further from torch: its parity limits are wider here (the full audit
+    keeps the config's).
     """
     return cfg.model_copy(
         update={
             "name": f"{cfg.name}-audit-quick",
             "data": cfg.data.model_copy(update={"n_users": 40, "transactions_per_user": 40}),
+            "export": cfg.export.model_copy(
+                update={
+                    "parity_tolerance": 0.5,
+                    "parity_tolerance_p99_9": 0.5,
+                    "parity_label_margin": 0.5,
+                }
+            ),
             "audit": cfg.audit.model_copy(
                 update={"enabled": True, "shadow_models": 4, "max_candidates": 300}
             ),

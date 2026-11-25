@@ -1,6 +1,6 @@
 """Command line: ``akili synth | vectors | fine-tune-vectors | reader-vectors | reader-examples |
 reader | ask-examples | ask-reader | ask-reader-probe | epsilon | accountants | ledger | gate |
-train | audit | simulate``."""
+train | audit | simulate | statement-eval``."""
 
 from __future__ import annotations
 
@@ -483,6 +483,32 @@ def _add_privacy_commands(sub: Any) -> None:
     p.set_defaults(func=_gate)
 
 
+def _statement_eval(args: argparse.Namespace) -> int:
+    require("rayo_convert", "torch")
+    import numpy as np
+
+    from akili.config import FeatureConfig
+    from akili.export.onnx import ReferenceRunner
+    from akili.model import INPUT, RAYO_OPTIONS
+    from akili.statement_eval import score, write
+
+    run_dir = Path(args.run_dir)
+    manifest = json.loads((run_dir / "model-manifest.json").read_text(encoding="utf-8"))
+    runner = ReferenceRunner((run_dir / "categoriser.onnx").read_bytes(), RAYO_OPTIONS)
+
+    def run(x: Any) -> Any:
+        return np.stack(
+            [np.asarray(runner.run({INPUT: row.astype(np.int64)})[0]).reshape(-1) for row in x]
+        )
+
+    report = score(run, FeatureConfig(**manifest["feature_config"]))
+    write(report, run_dir / "statement-eval.json")
+    print(f"statement payees: accuracy {report['accuracy']} on {report['rows']} rows")
+    for name, c in report["categories"].items():
+        print(f"  {name:18} precision {c['precision']:.2f}  recall {c['recall']:.2f}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="akili", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -561,6 +587,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--report-only", action="store_true", help="exit 0 even when the audit fails (CI smoke)"
     )
     p.set_defaults(func=_audit)
+
+    p = sub.add_parser(
+        "statement-eval",
+        help="score a trained categoriser on the invented statement-payee set [torch]",
+    )
+    p.add_argument("--run-dir", required=True, help="a run's folder (artefacts/<name>)")
+    p.set_defaults(func=_statement_eval)
 
     p = sub.add_parser("simulate", help="federated simulation on synthetic users [torch]")
     p.add_argument("--config", required=True)
