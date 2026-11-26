@@ -65,8 +65,8 @@ choice depend on the facts too, `none` when data was missing; the models learnt 
 2. **Fact sheets** are written by [`akili.slm.facts`](../src/akili/slm/facts.py), a port of the
    app's `SlmFacts.of`. `tests/test_slm_facts.py` checks it gives the app's text **word for word**
    on 60 cases the app's own test writes (`tests/fixtures/slm_facts_parity.json`, copied from
-   pesaclarity-app `test/features/slm_experiment/fixtures/`; regenerate there with
-   `UPDATE_SLM_PARITY=1 flutter test test/features/slm_experiment/slm_facts_parity_test.dart` and
+   pesaclarity-app `test/features/ask/model/fixtures/`; regenerate there with
+   `UPDATE_SLM_PARITY=1 flutter test test/features/ask/model/slm_facts_parity_test.dart` and
    copy it here after any change to the facts or the system text).
 3. **Questions**: paraphrases of the app's three presets plus other money questions, in English
    and some Swahili and Sheng, with small surface changes (case, punctuation); weighted towards

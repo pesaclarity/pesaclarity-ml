@@ -40,8 +40,12 @@ jobs:
         include:
           - size: 135M
             ks: "2 4 6 10"
+            skip: 2401
+            polish: 600
           - size: 360M
             ks: "2 4 6 10"
+            skip: 1201
+            polish: 500
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -68,6 +72,23 @@ jobs:
           path: results
           run-id: ${{ env.RUN }}
           github-token: ${{ github.token }}
+      # A second pass over rows the first fine-tune did not see, at a lower rate; kept only
+      # when it scores at least as well.
+      - name: Polish the fine-tune
+        run: |
+          set -euo pipefail
+          s=${{ matrix.size }}
+          mkdir -p polish-data
+          tail -n +${{ matrix.skip }} data/train.jsonl > polish-data/train.jsonl
+          python -m akili.slm.train tuned polish-data polished --limit ${{ matrix.polish }} --lr 1e-4 --hours 1.6 2>&1 | tail -3
+          cp tuned/SOURCES tuned/REVISION polished/
+          python -m akili.slm.evaluate polished data/test.jsonl "results/eval-$s-polished.json" --name "$s fine-tuned, polished"
+          if python3 tool/slm/better.py "results/eval-$s-polished.json" "results/eval-$s-tuned.json"; then
+            rm -rf tuned && mv polished tuned
+            mv "results/eval-$s-tuned.json" "results/eval-$s-first.json"
+            cp "results/eval-$s-polished.json" "results/eval-$s-tuned.json"
+            echo "polished kept"
+          fi
       - name: Trim the vocabulary
         run: |
           set -euo pipefail
