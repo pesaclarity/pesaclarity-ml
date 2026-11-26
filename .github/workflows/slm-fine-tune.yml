@@ -55,7 +55,7 @@ jobs:
       matrix:
         include:
           - size: 135M
-            revision: main
+            revision: 12fd25f77366fa6b3b4b768ec3050bf629380bac
             rows: 2400
             epochs: 1
           - size: 360M

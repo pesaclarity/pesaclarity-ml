@@ -1,4 +1,4 @@
-# ruff: noqa: E501, PLR0915
+# ruff: noqa: PLR0915
 """Makes the fine-tuned phone model leaner: vocabulary trimming and layer pruning (docs/SLM.md).
 
 ``trim``: keeps only the tokens the task's text uses (every fact sheet, question and reply of the

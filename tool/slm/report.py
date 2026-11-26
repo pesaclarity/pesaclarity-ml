@@ -46,6 +46,25 @@ def main() -> None:
                 f"| {r['same_json_line_as_torch']} | {m['json_valid']} | {m['chart_and_data']} "
                 f"| {m['numbers_grounded']} | {r['seconds']} |"
             )
+    print("\n## Chart choice by kind of question (right/asked)\n")
+    kinds = sorted({x["kind"] for r in runs for x in r["replies"]})
+    print("| model | " + " | ".join(kinds) + " |")
+    print("|---|" + "---|" * len(kinds))
+    for r in runs:
+        cells = []
+        for k in kinds:
+            xs = [x for x in r["replies"] if x["kind"] == k]
+            ok = 0
+            for x in xs:
+                try:
+                    c = json.loads(x["reply"].lstrip().split("\n")[0])
+                    ok += (
+                        c.get("chart") == x["gold"]["chart"] and c.get("data") == x["gold"]["data"]
+                    )
+                except (ValueError, AttributeError):
+                    pass
+            cells.append(f"{ok}/{len(xs)}")
+        print(f"| {r['name']} | " + " | ".join(cells) + " |")
     for r in runs:
         print(f"\n## Samples: {r['name']}\n")
         for i, x in enumerate(r["replies"][:20], 1):

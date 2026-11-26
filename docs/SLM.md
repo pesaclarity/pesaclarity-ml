@@ -41,12 +41,16 @@ Which chart each kind of question gets:
 | how can I spend less | bar | top_categories | this_month |
 | am I on track with my budget | bar | budget_vs_spent | this_month |
 | spending over the last 3 months | line | months_trend | last_3_months |
-| money in and out by week | bar | in_out_weeks | this_month (since_payday when asked) |
+| money in and out by week | bar | in_out_weeks | this_month |
+| … since payday | bar | in_out_weeks | since_payday |
 | fees and charges | donut | fees | this_month |
 | balance, bills, anything the facts do not answer | none | none | this_month |
 
-When the facts lack what the question needs (no budgets, no spending yet) the reply says it is
-not sure and picks `none`.
+The chart depends on the question alone. When the records lack what it shows (no budgets, no
+spending yet) the app's chart is empty and is not drawn, and the words say the model is not sure;
+`since_payday` falls back to this month when there is no payday. (A first version made the
+choice depend on the facts too, `none` when data was missing; the models learnt it poorly,
+73–80% chart accuracy.)
 
 ## Data
 
@@ -105,6 +109,31 @@ Base and fine-tuned models of both sizes are scored; SmolLM2-360M-Instruct base 
 experiment's model) is the baseline. Thresholds to ship: JSON valid ≥ 98%, chart choice ≥ 90%,
 numbers grounded ≥ 98%; the smallest model that passes ships. The latest report is
 [SLM-EVAL.md](SLM-EVAL.md) (also on the `slm-models` prerelease).
+
+## Leaner: vocabulary trimming and layer pruning
+
+[`akili.slm.lean`](../src/akili/slm/lean.py), run by
+[`.github/workflows/slm-lean.yml`](../.github/workflows/slm-lean.yml) on the fine-tuned models.
+Each variant ships only if it still passes the thresholds.
+
+- **Vocabulary trimming.** SmolLM2's 49,152 tokens are mostly never used here. Kept: every token
+  the task's text uses (every fact sheet, question and reply of the training and test data
+  through the chat template, plus extra Swahili and Sheng words and the digits, punctuation and
+  KES forms), every single-byte token, the special tokens, a safety margin of the 4,000 most
+  common tokens, and every token those are merged from. Merges whose parts or result are dropped
+  are removed; the tied embedding (and output) rows are gathered to the kept ids. Because every
+  byte is kept, **any other text still tokenises (byte by byte) and nothing breaks**. A parity
+  check requires the same tokens as the full tokenizer on every test row, and unseen text
+  (emoji, other scripts) to decode back unchanged. rayo-convert reads the trimmed
+  `tokenizer.json` like any other and stores its table in the file; the rayo check below
+  confirms rayo's replies.
+- **Layer pruning.** Each layer's importance is 1 − the mean cosine similarity of the hidden
+  state before and after it, on training rows. The `k` least important layers (never the first
+  or the last) are dropped, then a short healing fine-tune (LoRA, merged, 600 rows) runs; `k`
+  grows (6, 10, 14) while the thresholds hold, and the smallest passing prune is also trimmed.
+
+The report ([SLM-LEAN-EVAL.md](SLM-LEAN-EVAL.md), also on the prerelease) has the size and
+scores of each.
 
 ## Conversion and the rayo check
 

@@ -12,9 +12,9 @@ No DP budget: the data is synthetic, made-up people only (docs/SLM.md).
 from __future__ import annotations
 
 import argparse
-import os
 import json
 import math
+import os
 import random
 import time
 from pathlib import Path
@@ -90,6 +90,7 @@ def main() -> None:
         keep = target != -100
         logits = inner.lm_head(hidden[:, :-1][keep])
         return ce(logits.float(), target[keep]), int(keep.sum())
+
     rows = [json.loads(x) for x in Path(a.data, "train.jsonl").read_text().splitlines()]
     if a.limit:
         rows = rows[: a.limit]

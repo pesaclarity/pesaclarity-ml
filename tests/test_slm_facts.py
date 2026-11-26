@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 
 from akili.slm.answer import parse, ungrounded_numbers
-from akili.slm.data import examples
+from akili.slm.data import CHART_FOR_KIND, examples
 from akili.slm.facts import SYSTEM_PROMPT, Entry, FactsInput, facts_text, from_fixture, money
 
 FIXTURE = Path(__file__).parent / "fixtures" / "slm_facts_parity.json"
@@ -63,6 +63,7 @@ def test_targets_are_valid_and_grounded():
     for r in rows:
         p = parse(r.target)
         assert p.choice == r.choice
+        assert r.choice == CHART_FOR_KIND[r.kind]
         assert ungrounded_numbers(p.text, r.facts) == [], (r.kind, p.text)
         assert 1 <= p.text.count(".") + p.text.count("!") <= 6
         assert r.system.endswith(r.facts)

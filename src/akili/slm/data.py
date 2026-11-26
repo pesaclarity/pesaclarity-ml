@@ -269,8 +269,33 @@ def _none(period: str = "this_month") -> Choice:
     return Choice("none", "none", period)
 
 
+#: The chart each kind of question gets. It depends on the question alone: when the records lack
+#: what it shows (no budgets, no spending yet), the app's chart is simply empty and not drawn, and
+#: the words say so. ``since_payday`` falls back to this month in the app when there is no payday.
+CHART_FOR_KIND: dict[str, Choice] = {
+    "where": Choice("bar", "top_categories", "this_month"),
+    "where_payday": Choice("bar", "top_categories", "since_payday"),
+    "share": Choice("donut", "top_categories", "this_month"),
+    "payees": Choice("bar", "top_payees", "this_month"),
+    "spend_less": Choice("bar", "top_categories", "this_month"),
+    "budget": Choice("bar", "budget_vs_spent", "this_month"),
+    "trend": Choice("line", "months_trend", "last_3_months"),
+    "weeks": Choice("bar", "in_out_weeks", "this_month"),
+    "weeks_payday": Choice("bar", "in_out_weeks", "since_payday"),
+    "fees": Choice("donut", "fees", "this_month"),
+    "left": Choice("none", "none", "this_month"),
+    "bills": Choice("none", "none", "this_month"),
+    "offtopic": Choice("none", "none", "this_month"),
+}
+
+
 def write(kind: str, sheet: _Sheet, rng: np.random.Generator) -> tuple[Choice, str]:
-    """The target reply for a question of ``kind`` on ``sheet``: a chart choice and 2-3 sentences."""
+    """The target reply for a question of ``kind`` on ``sheet``: its chart and 2-3 sentences."""
+    _, text = _words(kind, sheet, rng)
+    return CHART_FOR_KIND[kind], text
+
+
+def _words(kind: str, sheet: _Sheet, rng: np.random.Generator) -> tuple[Choice, str]:
     p = lambda *o: _pick(rng, o)  # noqa: E731
     cats = [_split(x) for x in sheet.get("Top spending this month")]
     payees = [_split(x) for x in sheet.get("Top payees this month")]
