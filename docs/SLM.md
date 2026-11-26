@@ -130,7 +130,7 @@ Each variant ships only if it still passes the thresholds.
 - **Layer pruning.** Each layer's importance is 1 − the mean cosine similarity of the hidden
   state before and after it, on training rows. The `k` least important layers (never the first
   or the last) are dropped, then a short healing fine-tune (LoRA, merged, 600 rows) runs; `k`
-  grows (6, 10, 14) while the thresholds hold, and the smallest passing prune is also trimmed.
+  grows (2, 4, 6, 10) while the thresholds hold, and the smallest passing prune is also trimmed.
 
 The report ([SLM-LEAN-EVAL.md](SLM-LEAN-EVAL.md), also on the prerelease) has the size and
 scores of each.
