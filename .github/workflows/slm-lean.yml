@@ -27,7 +27,7 @@ env:
   TORCH: torch==2.5.1
   TAG: slm-models
   PYTHONPATH: src
-  RUN: ${{ inputs.run || '45790448588' }}
+  RUN: ${{ inputs.run || '45822900384' }}
 
 jobs:
   lean:
@@ -60,6 +60,12 @@ jobs:
         with:
           name: data
           path: data
+          run-id: ${{ env.RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v5
+        with:
+          name: results-${{ matrix.size }}
+          path: results
           run-id: ${{ env.RUN }}
           github-token: ${{ github.token }}
       - name: Trim the vocabulary
@@ -98,6 +104,7 @@ jobs:
       - name: Gather the variants
         run: |
           mkdir -p variants
+          cp -r tuned variants/tuned
           mv trim variants/trim
           if [ -n "$BEST" ]; then mv "healed-$BEST" "variants/prune$BEST"; mv "both-$BEST" "variants/prune$BEST-trim"; fi
       - uses: actions/upload-artifact@v4
@@ -147,27 +154,33 @@ jobs:
           path: data
           run-id: ${{ env.RUN }}
           github-token: ${{ github.token }}
-      - name: Convert (q4; for 360M also q3 MLP) and check on rayo
+      # int8 weights with a float32 key/value cache: q4 (and q3) lose the chart line on
+      # these small models, and an int8 cache costs the 360M model too
+      # (SLM-QUANT-*.md on the release). q4 and q3 are still scored for the report.
+      - name: Convert (int8; q4 and q3 MLP for the record) and check on rayo
         run: |
           set -euo pipefail
           s=${{ matrix.size }}
           l="$(echo "$s" | tr A-Z a-z)"
           mkdir -p out rayo-res
+          check() {  # variant name convert-args...
+            v="$1"; n="$2"; shift 2
+            rayo-convert "variants/$v" -o "out/$n.weights" --context 2048 "$@" | tail -1
+            python tool/slm/rayo_check.py rayo/examples/chat/chat "out/$n.weights" data/test.jsonl \
+              "results/eval-$s-$v.json" "rayo-res/rayo-$n.json" --n 40 --kv float32 --name "$n"
+          }
           for v in variants/*/; do
             v="$(basename "$v")"
-            n="pesaclarity-smollm2-$l-$v-q4"
-            rayo-convert "variants/$v" -o "out/$n.weights" --weights q4 --context 2048
-            python tool/slm/rayo_check.py rayo/examples/chat/chat "out/$n.weights" data/test.jsonl \
-              "results/eval-$s-$v.json" "rayo-res/rayo-$n.json" --n 40 --kv int8 --name "$n"
-            if [ "$l" = 360m ]; then
-              n="pesaclarity-smollm2-$l-$v-q3mlp"
-              rayo-convert "variants/$v" -o "out/$n.weights" --weights q4 --q3 mlp --context 2048
-              python tool/slm/rayo_check.py rayo/examples/chat/chat "out/$n.weights" data/test.jsonl \
-                "results/eval-$s-$v.json" "rayo-res/rayo-$n.json" --n 40 --kv int8 --name "$n"
-            fi
+            check "$v" "pesaclarity-smollm2-$l-$v-int8" --weights int8
           done
-          rm -f out/*.tokenizer.json
-          cp variants/trim/SOURCES variants/trim/REVISION out/ 2>/dev/null || true
+          mkdir -p record
+          check tuned "pesaclarity-smollm2-$l-tuned-q4" --weights q4
+          mv "out/pesaclarity-smollm2-$l-tuned-q4.weights" record/
+          if [ "$l" = 360m ]; then
+            check tuned "pesaclarity-smollm2-$l-tuned-q3mlp" --weights q4 --q3 mlp
+            mv "out/pesaclarity-smollm2-$l-tuned-q3mlp.weights" record/
+          fi
+          rm -f out/*.tokenizer.json record/*
           ls -l out
       - uses: actions/upload-artifact@v4
         with:
