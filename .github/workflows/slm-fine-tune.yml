@@ -1,0 +1,223 @@
+name: Phone language model (fine-tune)
+
+# The app's on-phone language model experiment (test builds only): fine-tunes SmolLM2-135M- and
+# SmolLM2-360M-Instruct (Apache-2.0) on synthetic data only (docs/SLM.md), scores base and
+# fine-tuned models on held-out made-up people, converts the fine-tuned ones with rayo-convert at
+# the rayo commit the app pins, checks rayo's greedy replies against torch's, and puts the
+# .weights, SHA256SUMS and the licence on this repository's `slm-models` prerelease, where the
+# app's slm-model.yml takes them from (by pinned SHA-256). CPU runners; LoRA, then merged.
+on:
+  push:
+    branches: [feat/slm-fine-tune]
+    paths:
+      - src/akili/slm/**
+      - tool/slm/**
+      - tests/test_slm_facts.py
+      - .github/workflows/slm-fine-tune.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # The rayo commit pesaclarity-app's pubspec.yaml pins.
+  RAYO_REF: cdd7f559b6cfe88fa917d4760bebca9bdc5dad37
+  TORCH: torch==2.5.1
+  TAG: slm-models
+  PYTHONPATH: src
+
+jobs:
+  data:
+    name: Synthetic data
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install numpy==2.1.3 pydantic==2.10.3 pyyaml==6.0.2 pytest==8.3.4
+      - name: Fact sheets match the app's; targets are grounded
+        run: python -m pytest -q tests/test_slm_facts.py -p no:cacheprovider --noconftest
+      - run: python -m akili.slm.data artefacts/slm/data
+      - uses: actions/upload-artifact@v4
+        with:
+          name: data
+          path: artefacts/slm/data
+
+  model:
+    name: SmolLM2-${{ matrix.size }}
+    needs: data
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - size: 135M
+            revision: main
+            rows: 2400
+            epochs: 1
+          - size: 360M
+            # The revision the app's current experiment was converted from.
+            revision: a10cc1512eabd3dde888204e902eca88bddb4951
+            rows: 1200
+            epochs: 1
+    env:
+      MODEL: HuggingFaceTB/SmolLM2-${{ matrix.size }}-Instruct
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu "$TORCH"
+          pip install -r tool/slm/requirements.txt
+      - uses: actions/download-artifact@v5
+        with:
+          name: data
+          path: data
+      - name: Download the model and check its files
+        run: python tool/slm/fetch_model.py "$MODEL" "${{ matrix.revision }}" base
+      - name: Score the base model
+        run: python -m akili.slm.evaluate base data/test.jsonl results/eval-${{ matrix.size }}-base.json --name "${{ matrix.size }} base"
+      - name: Fine-tune (LoRA, merged)
+        run: |
+          python -m akili.slm.train base data tuned --limit ${{ matrix.rows }} --epochs ${{ matrix.epochs }} --hours 3
+          cp tuned/TRAINING.json results/train-${{ matrix.size }}.json
+          cp base/SOURCES base/REVISION tuned/
+      - name: Score the fine-tuned model
+        run: python -m akili.slm.evaluate tuned data/test.jsonl results/eval-${{ matrix.size }}-tuned.json --name "${{ matrix.size }} fine-tuned"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tuned-${{ matrix.size }}
+          path: tuned
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        with:
+          name: results-${{ matrix.size }}
+          path: results
+
+  convert:
+    name: rayo ${{ matrix.size }}
+    needs: model
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        size: [135M, 360M]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+        with:
+          repository: pesaclarity/rayo
+          ref: ${{ env.RAYO_REF }}
+          path: rayo
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: |
+          pip install "./rayo/convert[chat]" numpy==2.1.3 pydantic==2.10.3 pyyaml==6.0.2
+          make -C rayo
+      - uses: actions/download-artifact@v5
+        with:
+          name: tuned-${{ matrix.size }}
+          path: tuned
+      - uses: actions/download-artifact@v5
+        with:
+          name: data
+          path: data
+      - uses: actions/download-artifact@v5
+        with:
+          name: results-${{ matrix.size }}
+          path: results
+      - name: Convert (float32, q4 and, for 360M, q4 with 3-bit MLP)
+        run: |
+          set -euo pipefail
+          s="$(echo '${{ matrix.size }}' | tr A-Z a-z)"
+          mkdir -p out
+          rayo-convert tuned -o "out/pesaclarity-smollm2-$s-f32.weights" --weights float32 --context 2048
+          rayo-convert tuned -o "out/pesaclarity-smollm2-$s-q4.weights" --weights q4 --context 2048
+          if [ "$s" = 360m ]; then
+            rayo-convert tuned -o "out/pesaclarity-smollm2-$s-q3mlp.weights" --weights q4 --q3 mlp --context 2048
+          fi
+          rm -f out/*.tokenizer.json
+          ls -l out
+      - name: rayo against torch (greedy)
+        run: |
+          set -euo pipefail
+          t="results/eval-${{ matrix.size }}-tuned.json"
+          for w in out/*.weights; do
+            n="$(basename "$w" .weights)"
+            kv=int8; [ "${n%-f32}" != "$n" ] && kv=float32
+            python tool/slm/rayo_check.py rayo/examples/chat/chat "$w" data/test.jsonl "$t" \
+              "rayo/rayo-$n.json" --n 40 --kv "$kv" --name "$n"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rayo-${{ matrix.size }}
+          path: |
+            out/*-q4.weights
+            out/*-q3mlp.weights
+            tuned/SOURCES
+            tuned/REVISION
+            rayo/*.json
+
+  report:
+    name: Report and publish
+    needs: [model, convert]
+    if: always() && needs.model.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: results-*
+          path: all
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: rayo-*
+          path: all
+      - name: Report
+        run: |
+          mkdir -p r
+          find all -name '*.json' -path '*results*' -exec cp {} r/ \;
+          find all -name 'rayo-*.json' -exec cp {} r/ \;
+          python3 tool/slm/report.py r | tee report.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Put the weights on the slm-models prerelease
+        if: needs.convert.result == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p pub
+          for s in 135M 360M; do
+            d="all/rayo-$s"
+            cp "$d"/out/*.weights pub/
+            lower="$(echo $s | tr A-Z a-z)"
+            sed "s/  /  source-$lower\//" "$d/tuned/SOURCES" > "pub/SOURCES-$lower"
+            echo "HuggingFaceTB/SmolLM2-$s-Instruct revision $(cat "$d/tuned/REVISION")" >> pub/REVISIONS
+          done
+          cd pub
+          (sha256sum *.weights; cat SOURCES-*) > SHA256SUMS
+          {
+            echo "Fine-tuned from Hugging Face's SmolLM2 instruct models (Apache License 2.0):"
+            cat REVISIONS
+            echo "Fine-tuned (LoRA, merged) on synthetic data only by pesaclarity/pesaclarity-ml $GITHUB_SHA"
+            echo "(docs/SLM.md), converted with rayo-convert (pesaclarity/rayo $RAYO_REF):"
+            echo "rayo-convert tuned -o FILE --weights q4 [--q3 mlp] --context 2048"
+            echo "The fine-tuned weights are a modified work of SmolLM2 under the same licence."
+            echo
+            cat /usr/share/common-licenses/Apache-2.0
+          } > MODEL-LICENCE.txt
+          cp ../report.md SLM-EVAL.md
+          cat SHA256SUMS
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --prerelease \
+            --target "$GITHUB_SHA" --title "Phone language model (experiment, test builds only)" \
+            --notes "Fine-tuned SmolLM2 models for the app's on-phone model experiment, in iPhone test builds only. Synthetic training data only; see docs/SLM.md."
+          gh release upload "$TAG" *.weights SHA256SUMS MODEL-LICENCE.txt SLM-EVAL.md --clobber
