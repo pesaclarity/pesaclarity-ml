@@ -1,0 +1,91 @@
+name: Phone language model (quantisation check)
+
+# Which rayo-convert weight format keeps a fine-tuned phone model's replies (docs/SLM.md): each
+# format, converted at the rayo commit the app pins, run greedy on rayo against torch's replies
+# on held-out rows, with the int8 key/value cache the app uses and with a float32 one.
+on:
+  push:
+    branches: [feat/slm-fine-tune]
+    paths:
+      - .github/workflows/slm-quant.yml
+  workflow_dispatch:
+    inputs:
+      run:
+        description: The slm-fine-tune.yml run to take the fine-tuned models from
+        required: false
+
+permissions:
+  contents: write
+  actions: read
+
+env:
+  RAYO_REF: cdd7f559b6cfe88fa917d4760bebca9bdc5dad37
+  PYTHONPATH: src
+  RUN: ${{ inputs.run || '45790448588' }}
+
+jobs:
+  quant:
+    name: Formats, ${{ matrix.size }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        size: [135M, 360M]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+        with:
+          repository: pesaclarity/rayo
+          ref: ${{ env.RAYO_REF }}
+          path: rayo
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: |
+          pip install "./rayo/convert[chat]" numpy==2.1.3 pydantic==2.10.3 pyyaml==6.0.2
+          make -C rayo
+      - uses: actions/download-artifact@v5
+        with:
+          name: tuned-${{ matrix.size }}
+          path: tuned
+          run-id: ${{ env.RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v5
+        with:
+          name: data
+          path: data
+          run-id: ${{ env.RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v5
+        with:
+          name: results-${{ matrix.size }}
+          path: results
+          run-id: ${{ env.RUN }}
+          github-token: ${{ github.token }}
+      - name: Convert each way and check on rayo
+        run: |
+          set -uo pipefail
+          s=${{ matrix.size }}
+          mkdir -p out res
+          check() {  # name kv convert-args...
+            n="$1"; kv="$2"; shift 2
+            [ -f "out/$n.weights" ] || rayo-convert tuned -o "out/$n.weights" --context 2048 "$@" | tail -1
+            python tool/slm/rayo_check.py rayo/examples/chat/chat "out/$n.weights" data/test.jsonl \
+              "results/eval-$s-tuned.json" "res/rayo-$n-$kv.json" --n 40 --kv "$kv" --name "$n kv $kv" \
+              | cut -c1-400
+          }
+          check q4 int8 --weights q4
+          check q4 float32 --weights q4
+          check q4-f32scales int8 --weights q4 --scales float32
+          check int8 int8 --weights int8
+          check int8 float32 --weights int8
+      - name: Report
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          python3 tool/slm/report.py res > "SLM-QUANT-${{ matrix.size }}.md" || true
+          cat "SLM-QUANT-${{ matrix.size }}.md" >> "$GITHUB_STEP_SUMMARY"
+          gh release upload slm-models "SLM-QUANT-${{ matrix.size }}.md" --clobber
