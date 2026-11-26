@@ -267,6 +267,22 @@ jobs:
         run: |
           set -euo pipefail
           cp report.md SLM-LEAN-EVAL.md
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --prerelease \
+            --target "$GITHUB_SHA" --title "Ask money models" \
+            --notes "SmolLM2 fine-tuned on synthetic data only for Pesa Clarity's Ask (Light: 135M, Full: 360M); see docs/SLM.md and the SLM-*.md reports."
+          {
+            echo "Pesa Clarity's Ask money models are modified versions of Hugging Face's SmolLM2"
+            echo "instruct models, licensed under the Apache License 2.0:"
+            echo "  HuggingFaceTB/SmolLM2-135M-Instruct revision 12fd25f77366fa6b3b4b768ec3050bf629380bac (Light)"
+            echo "  HuggingFaceTB/SmolLM2-360M-Instruct revision a10cc1512eabd3dde888204e902eca88bddb4951 (Full)"
+            echo "Changes: fine-tuned (LoRA, merged) on synthetic data only, vocabulary trimmed, and"
+            echo "converted to int8 weights with rayo-convert (pesaclarity/rayo $RAYO_REF), by"
+            echo "pesaclarity/pesaclarity-ml (docs/SLM.md, .github/workflows/slm-fine-tune.yml and"
+            echo "slm-lean.yml)."
+            echo
+            cat /usr/share/common-licenses/Apache-2.0
+          } > MODEL-LICENCE.txt
+          gh release upload "$TAG" MODEL-LICENCE.txt --clobber
           gh release upload "$TAG" SLM-LEAN-EVAL.md --clobber
           shopt -s nullglob
           w=(all/leanrayo-*/out/*.weights)
