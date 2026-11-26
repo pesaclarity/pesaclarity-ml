@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.0](https://github.com/pesaclarity/pesaclarity-ml/compare/v0.3.0...v0.4.0) (2026-11-25)
+
+
+### Features
+
+* **categoriser:** transport, salary and money from people in the app format ([b59fd31](https://github.com/pesaclarity/pesaclarity-ml/commit/b59fd31401686cd115a6962c73ac94cf815b39de))
+* **categoriser:** transport, salary and money from people in the app format ([a593f12](https://github.com/pesaclarity/pesaclarity-ml/commit/a593f12a46b4c0f6cf2a05fe4beed409bfe4b9e6))
+* **cli:** score a categoriser on invented statement payees ([bf708c5](https://github.com/pesaclarity/pesaclarity-ml/commit/bf708c52c30cedfb4c4319261c5695801b6e0d1f))
+* **synthetic:** write payees as the app gives them to the categoriser ([29b4e13](https://github.com/pesaclarity/pesaclarity-ml/commit/29b4e139c8c0f4b314cddafa218a56eb77c882ee))
+* train the categoriser on payees as the app gives them ([a09fdf2](https://github.com/pesaclarity/pesaclarity-ml/commit/a09fdf2d1e6a0b396cb76fc3fdbde480ec65656a))
+* **train:** train dp-sgd on app-format payees with 400 people a step ([1eabc36](https://github.com/pesaclarity/pesaclarity-ml/commit/1eabc36d9a3a5e0518d4be916549d97aee5f0271))
+
 ## [0.3.0](https://github.com/pesaclarity/pesaclarity-ml/compare/v0.2.0...v0.3.0) (2026-11-21)
 
 

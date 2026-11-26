@@ -1,3 +1,3 @@
 """Akili: the Pesa Clarity on-device transaction categoriser and its training tools."""
 
-__version__ = "0.3.0"  # x-release-please-version
+__version__ = "0.4.0"  # x-release-please-version
