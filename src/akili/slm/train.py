@@ -47,6 +47,9 @@ def main() -> None:
     ap.add_argument("--rank", type=int, default=16)
     ap.add_argument("--lr", type=float, default=3e-4)
     ap.add_argument("--batch", type=int, default=8)
+    ap.add_argument(
+        "--json-weight", type=float, default=1.0, help="loss weight of the chart line's tokens"
+    )
     ap.add_argument("--micro", type=int, default=2, help="rows per forward pass")
     ap.add_argument("--limit", type=int, default=0, help="train on this many rows only")
     ap.add_argument("--hours", type=float, default=4.5, help="stop after this long")
@@ -82,19 +85,24 @@ def main() -> None:
     inner = model.base_model.model
     inner.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
     inner.enable_input_require_grads()
-    ce = torch.nn.CrossEntropyLoss(reduction="sum")
+    ce = torch.nn.CrossEntropyLoss(reduction="none")
 
-    def reply_loss(ids, mask, labels):  # type: ignore[no-untyped-def]
+    def reply_loss(ids, mask, labels, weights):  # type: ignore[no-untyped-def]
         hidden = inner.model(input_ids=ids, attention_mask=mask).last_hidden_state
         target = labels[:, 1:]
         keep = target != -100
         logits = inner.lm_head(hidden[:, :-1][keep])
-        return ce(logits.float(), target[keep]), int(keep.sum())
+        w = weights[:, 1:][keep]
+        return (ce(logits.float(), target[keep]) * w).sum(), int(keep.sum())
 
     rows = [json.loads(x) for x in Path(a.data, "train.jsonl").read_text().splitlines()]
     if a.limit:
         rows = rows[: a.limit]
     data = [encode(tok, r) for r in rows]
+    # The chart line's tokens (the first line of the reply), weighted by --json-weight.
+    heads = [
+        len(tok(r["target"].split("\n")[0], add_special_tokens=False)["input_ids"]) for r in rows
+    ]
     print(f"{len(data)} rows, mean {sum(len(d[0]) for d in data) / len(data):.0f} tokens")
 
     # Batches of similar length, in random order.
@@ -124,12 +132,15 @@ def main() -> None:
                 ids = torch.full((len(part), n), pad)
                 labels = torch.full((len(part), n), -100)
                 mask = torch.zeros((len(part), n), dtype=torch.long)
+                weights = torch.ones((len(part), n))
                 for j, i in enumerate(part):
                     x, y = data[i]
+                    first = sum(1 for t in y if t == -100)
+                    weights[j, first : first + heads[i]] = a.json_weight
                     ids[j, : len(x)] = torch.tensor(x)
                     labels[j, : len(y)] = torch.tensor(y)
                     mask[j, : len(x)] = 1
-                summed, _ = reply_loss(ids, mask, labels)
+                summed, _ = reply_loss(ids, mask, labels, weights)
                 (summed / tokens).backward()
                 total += summed.item()
             loss = torch.tensor(total / tokens)

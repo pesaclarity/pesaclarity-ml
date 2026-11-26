@@ -38,14 +38,15 @@ jobs:
       fail-fast: false
       matrix:
         # 135M passed after one second pass (run 45861963159; its pruning did not, so it is
-        # not tried again). 360M takes a third pass, from that run's second, over rows
-        # neither saw.
+        # not tried again). 360M takes a third pass from that run's second, over rows it has
+        # not learnt from, with the chart line's tokens weighted 5 times in the loss.
         include:
           - size: 360M
             ks: ""
             skip: 1901
             polish: 700
             polish_lr: 1e-4
+            json_weight: 5
             from_run: "45861963159"
     steps:
       - uses: actions/checkout@v5
@@ -104,7 +105,7 @@ jobs:
           s=${{ matrix.size }}
           mkdir -p polish-data
           tail -n +${{ matrix.skip }} data/train.jsonl > polish-data/train.jsonl
-          python -m akili.slm.train tuned polish-data polished --limit ${{ matrix.polish }} --lr ${{ matrix.polish_lr }} --hours 1.6 2>&1 | tail -3
+          python -m akili.slm.train tuned polish-data polished --limit ${{ matrix.polish }} --lr ${{ matrix.polish_lr }} --json-weight ${{ matrix.json_weight || 1 }} --hours 1.6 2>&1 | tail -3
           cp tuned/SOURCES tuned/REVISION polished/
           python -m akili.slm.evaluate polished data/test.jsonl "results/eval-$s-polished.json" --name "$s fine-tuned, polished"
           if python3 tool/slm/better.py "results/eval-$s-polished.json" "results/eval-$s-tuned.json"; then
