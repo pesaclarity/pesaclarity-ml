@@ -82,7 +82,7 @@ jobs:
           s=${{ matrix.size }}
           mkdir -p polish-data
           tail -n +${{ matrix.skip }} data/train.jsonl > polish-data/train.jsonl
-          python -m akili.slm.train tuned polish-data polished --limit ${{ matrix.polish }} --lr 1e-4 --hours 1.6 2>&1 | tail -3
+          python -m akili.slm.train tuned polish-data polished --limit ${{ matrix.polish }} --lr ${{ matrix.polish_lr }} --hours 1.6 2>&1 | tail -3
           cp tuned/SOURCES tuned/REVISION polished/
           python -m akili.slm.evaluate polished data/test.jsonl "results/eval-$s-polished.json" --name "$s fine-tuned, polished"
           if python3 tool/slm/better.py "results/eval-$s-polished.json" "results/eval-$s-tuned.json"; then
