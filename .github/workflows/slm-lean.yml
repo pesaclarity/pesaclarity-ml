@@ -1,0 +1,222 @@
+name: Phone language model (leaner)
+
+# Makes the fine-tuned phone models from slm-fine-tune.yml leaner (docs/SLM.md): vocabulary
+# trimming, and layer pruning with a short healing fine-tune, each scored on the held-out people
+# against the thresholds (JSON valid >= 98%, chart choice >= 90%, numbers grounded >= 98%); the
+# smallest passing prune is also trimmed. Every variant is converted with rayo-convert (q4) at
+# the rayo commit the app pins and checked on rayo against torch, and put on the `slm-models`
+# prerelease with the report. Takes the fine-tuned models and data from the run named below.
+on:
+  push:
+    branches: [feat/slm-fine-tune]
+    paths:
+      - src/akili/slm/lean.py
+      - .github/workflows/slm-lean.yml
+  workflow_dispatch:
+    inputs:
+      run:
+        description: The slm-fine-tune.yml run to take the fine-tuned models from
+        required: false
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  RAYO_REF: cdd7f559b6cfe88fa917d4760bebca9bdc5dad37
+  TORCH: torch==2.5.1
+  TAG: slm-models
+  PYTHONPATH: src
+  RUN: ${{ inputs.run || '45790448588' }}
+
+jobs:
+  lean:
+    name: Leaner SmolLM2-${{ matrix.size }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - size: 135M
+            ks: "6 10 14"
+          - size: 360M
+            ks: "6 10 14"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu "$TORCH"
+          pip install -r tool/slm/requirements.txt
+      - uses: actions/download-artifact@v5
+        with:
+          name: tuned-${{ matrix.size }}
+          path: tuned
+          run-id: ${{ env.RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v5
+        with:
+          name: data
+          path: data
+          run-id: ${{ env.RUN }}
+          github-token: ${{ github.token }}
+      - name: Trim the vocabulary
+        run: |
+          set -euo pipefail
+          s=${{ matrix.size }}
+          mkdir -p results
+          python -m akili.slm.lean trim tuned data trim
+          cp trim/TRIM.json "results/trim-$s.json"
+          python -m akili.slm.lean parity tuned trim data "results/parity-$s.json"
+          python -m akili.slm.evaluate trim data/test.jsonl "results/eval-$s-trim.json" --name "$s fine-tuned, trimmed vocab"
+      - name: Prune layers, heal, score
+        run: |
+          set -euo pipefail
+          s=${{ matrix.size }}
+          python -m akili.slm.lean score tuned data "results/layers-$s.json"
+          best=""
+          for k in ${{ matrix.ks }}; do
+            python -m akili.slm.lean prune tuned "results/layers-$s.json" "$k" "pruned-$k"
+            python -m akili.slm.train "pruned-$k" data "healed-$k" --limit 600 --hours 0.75 2>&1 | tail -3
+            cp "pruned-$k/PRUNE.json" "healed-$k/"
+            cp "pruned-$k/PRUNE.json" "results/prune-$s-$k.json"
+            python -m akili.slm.evaluate "healed-$k" data/test.jsonl "results/eval-$s-prune$k.json" --name "$s fine-tuned, $k layers pruned"
+            if python3 tool/slm/passes.py "results/eval-$s-prune$k.json"; then best="$k"; else break; fi
+          done
+          echo "BEST=$best" >> "$GITHUB_ENV"
+          echo "smallest passing prune: ${best:-none}"
+      - name: Trim the smallest passing prune
+        if: env.BEST != ''
+        run: |
+          set -euo pipefail
+          s=${{ matrix.size }}
+          python -m akili.slm.lean trim "healed-$BEST" data "both-$BEST"
+          python -m akili.slm.lean parity "healed-$BEST" "both-$BEST" data "results/parity-$s-both.json"
+          python -m akili.slm.evaluate "both-$BEST" data/test.jsonl "results/eval-$s-prune$BEST-trim.json" --name "$s fine-tuned, $BEST layers pruned, trimmed vocab"
+      - name: Gather the variants
+        run: |
+          mkdir -p variants
+          mv trim variants/trim
+          if [ -n "$BEST" ]; then mv "healed-$BEST" "variants/prune$BEST"; mv "both-$BEST" "variants/prune$BEST-trim"; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lean-${{ matrix.size }}
+          path: variants
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: leanresults-${{ matrix.size }}
+          path: results
+
+  convert:
+    name: rayo, leaner ${{ matrix.size }}
+    needs: lean
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        size: [135M, 360M]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+        with:
+          repository: pesaclarity/rayo
+          ref: ${{ env.RAYO_REF }}
+          path: rayo
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: |
+          pip install "./rayo/convert[chat]" numpy==2.1.3 pydantic==2.10.3 pyyaml==6.0.2
+          make -C rayo
+      - uses: actions/download-artifact@v5
+        with:
+          name: lean-${{ matrix.size }}
+          path: variants
+      - uses: actions/download-artifact@v5
+        with:
+          name: leanresults-${{ matrix.size }}
+          path: results
+      - uses: actions/download-artifact@v5
+        with:
+          name: data
+          path: data
+          run-id: ${{ env.RUN }}
+          github-token: ${{ github.token }}
+      - name: Convert (q4; for 360M also q3 MLP) and check on rayo
+        run: |
+          set -euo pipefail
+          s=${{ matrix.size }}
+          l="$(echo "$s" | tr A-Z a-z)"
+          mkdir -p out rayo-res
+          for v in variants/*/; do
+            v="$(basename "$v")"
+            n="pesaclarity-smollm2-$l-$v-q4"
+            rayo-convert "variants/$v" -o "out/$n.weights" --weights q4 --context 2048
+            python tool/slm/rayo_check.py rayo/examples/chat/chat "out/$n.weights" data/test.jsonl \
+              "results/eval-$s-$v.json" "rayo-res/rayo-$n.json" --n 40 --kv int8 --name "$n"
+            if [ "$l" = 360m ]; then
+              n="pesaclarity-smollm2-$l-$v-q3mlp"
+              rayo-convert "variants/$v" -o "out/$n.weights" --weights q4 --q3 mlp --context 2048
+              python tool/slm/rayo_check.py rayo/examples/chat/chat "out/$n.weights" data/test.jsonl \
+                "results/eval-$s-$v.json" "rayo-res/rayo-$n.json" --n 40 --kv int8 --name "$n"
+            fi
+          done
+          rm -f out/*.tokenizer.json
+          cp variants/trim/SOURCES variants/trim/REVISION out/ 2>/dev/null || true
+          ls -l out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: leanrayo-${{ matrix.size }}
+          path: |
+            out
+            rayo-res
+
+  report:
+    name: Report and publish (leaner)
+    needs: [lean, convert]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: leanresults-*
+          path: all
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: leanrayo-*
+          path: all
+      - name: Report
+        run: |
+          mkdir -p r
+          find all -name '*.json' -exec cp {} r/ \;
+          { python3 tool/slm/report.py r; echo; echo '## Trim, parity and pruning'; echo;
+            for f in r/trim-*.json r/parity-*.json r/prune-*.json r/layers-*.json; do
+              [ -f "$f" ] && echo "- $(basename "$f"): $(tr -d '\n' < "$f")"; done; } \
+            | tee report.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Put the weights and the report on the slm-models prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          cp report.md SLM-LEAN-EVAL.md
+          gh release upload "$TAG" SLM-LEAN-EVAL.md --clobber
+          shopt -s nullglob
+          w=(all/leanrayo-*/out/*.weights)
+          if [ ${#w[@]} -gt 0 ]; then
+            gh release download "$TAG" -p SHA256SUMS -O SHA256SUMS.old || : > SHA256SUMS.old
+            cp "${w[@]}" .
+            names="$(for f in "${w[@]}"; do basename "$f"; done)"
+            { grep -v -F -f <(echo "$names") SHA256SUMS.old || true; sha256sum $names; } > SHA256SUMS
+            cat SHA256SUMS
+            gh release upload "$TAG" $names SHA256SUMS --clobber
+          fi
