@@ -10,10 +10,10 @@ on:
   push:
     branches: [feat/slm-fine-tune]
     paths:
-      - src/akili/slm/**
-      - tool/slm/**
-      - tests/test_slm_facts.py
-      - .github/workflows/slm-fine-tune.yml
+      - src/akili/slm/data.py
+      - src/akili/slm/facts.py
+      - src/akili/slm/train.py
+      - tool/slm/fetch_model.py
   workflow_dispatch:
 
 permissions:

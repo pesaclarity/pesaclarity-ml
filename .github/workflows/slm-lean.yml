@@ -42,10 +42,12 @@ jobs:
             ks: "2 4 6 10"
             skip: 2401
             polish: 600
+            polish_lr: 1e-4
           - size: 360M
-            ks: "2 4 6 10"
+            ks: "2"
             skip: 1201
-            polish: 500
+            polish: 700
+            polish_lr: 2e-4
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
