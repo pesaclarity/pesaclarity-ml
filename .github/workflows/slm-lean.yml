@@ -37,17 +37,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # 135M passed after one second pass (run 45861963159; its pruning did not, so it is
+        # not tried again). 360M takes a third pass, from that run's second, over rows
+        # neither saw.
         include:
-          - size: 135M
-            ks: "2 4 6 10"
-            skip: 2401
-            polish: 600
-            polish_lr: 1e-4
           - size: 360M
-            ks: "2"
-            skip: 1201
+            ks: ""
+            skip: 1901
             polish: 700
-            polish_lr: 2e-4
+            polish_lr: 1e-4
+            from_run: "45861963159"
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -57,21 +56,44 @@ jobs:
           pip install --index-url https://download.pytorch.org/whl/cpu "$TORCH"
           pip install -r tool/slm/requirements.txt
       - uses: actions/download-artifact@v5
+        if: ${{ !matrix.from_run }}
         with:
           name: tuned-${{ matrix.size }}
           path: tuned
           run-id: ${{ env.RUN }}
           github-token: ${{ github.token }}
       - uses: actions/download-artifact@v5
-        with:
-          name: data
-          path: data
-          run-id: ${{ env.RUN }}
-          github-token: ${{ github.token }}
-      - uses: actions/download-artifact@v5
+        if: ${{ !matrix.from_run }}
         with:
           name: results-${{ matrix.size }}
           path: results
+          run-id: ${{ env.RUN }}
+          github-token: ${{ github.token }}
+      # Or the model an earlier run of this workflow left, with its scores.
+      - uses: actions/download-artifact@v5
+        if: ${{ matrix.from_run }}
+        with:
+          name: lean-${{ matrix.size }}
+          path: earlier
+          run-id: ${{ matrix.from_run }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v5
+        if: ${{ matrix.from_run }}
+        with:
+          name: leanresults-${{ matrix.size }}
+          path: results
+          run-id: ${{ matrix.from_run }}
+          github-token: ${{ github.token }}
+      - if: ${{ matrix.from_run }}
+        run: |
+          mv earlier/tuned tuned
+          mv "results/eval-${{ matrix.size }}-tuned.json" "results/eval-${{ matrix.size }}-second.json"
+          cp "results/eval-${{ matrix.size }}-second.json" "results/eval-${{ matrix.size }}-tuned.json"
+          rm -f results/eval-*-polished.json results/eval-*-trim.json results/eval-*-prune*.json
+      - uses: actions/download-artifact@v5
+        with:
+          name: data
+          path: data
           run-id: ${{ env.RUN }}
           github-token: ${{ github.token }}
       # A second pass over rows the first fine-tune did not see, at a lower rate; kept only
@@ -149,7 +171,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        size: [135M, 360M]
+        size: [360M]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/checkout@v5
