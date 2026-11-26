@@ -83,7 +83,8 @@ jobs:
         run: python -m akili.slm.evaluate base data/test.jsonl results/eval-${{ matrix.size }}-base.json --name "${{ matrix.size }} base"
       - name: Fine-tune (LoRA, merged)
         run: |
-          python -m akili.slm.train base data tuned --limit ${{ matrix.rows }} --epochs ${{ matrix.epochs }} --hours 3
+          set -o pipefail
+          python -m akili.slm.train base data tuned --limit ${{ matrix.rows }} --epochs ${{ matrix.epochs }} --hours 3 2>&1 | tee results/train-log-${{ matrix.size }}.txt
           cp tuned/TRAINING.json results/train-${{ matrix.size }}.json
           cp base/SOURCES base/REVISION tuned/
       - name: Score the fine-tuned model
@@ -167,7 +168,7 @@ jobs:
   report:
     name: Report and publish
     needs: [model, convert]
-    if: always() && needs.model.result == 'success'
+    if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -185,9 +186,20 @@ jobs:
       - name: Report
         run: |
           mkdir -p r
-          find all -name '*.json' -path '*results*' -exec cp {} r/ \;
+          find all -path '*results*' \( -name '*.json' -o -name '*.txt' \) -exec cp {} r/ \;
           find all -name 'rayo-*.json' -exec cp {} r/ \;
           python3 tool/slm/report.py r | tee report.md >> "$GITHUB_STEP_SUMMARY"
+      # The report is also put on the release, where it can be read without signing in.
+      - name: Put the report on the slm-models prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --prerelease \
+            --target "$GITHUB_SHA" --title "Phone language model (experiment, test builds only)" \
+            --notes "Fine-tuned SmolLM2 models for the app's on-phone model experiment, in iPhone test builds only. Synthetic training data only; see docs/SLM.md."
+          cp report.md SLM-EVAL.md
+          gh release upload "$TAG" SLM-EVAL.md --clobber
       - name: Put the weights on the slm-models prerelease
         if: needs.convert.result == 'success'
         env:
@@ -217,7 +229,4 @@ jobs:
           } > MODEL-LICENCE.txt
           cp ../report.md SLM-EVAL.md
           cat SHA256SUMS
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --prerelease \
-            --target "$GITHUB_SHA" --title "Phone language model (experiment, test builds only)" \
-            --notes "Fine-tuned SmolLM2 models for the app's on-phone model experiment, in iPhone test builds only. Synthetic training data only; see docs/SLM.md."
           gh release upload "$TAG" *.weights SHA256SUMS MODEL-LICENCE.txt SLM-EVAL.md --clobber

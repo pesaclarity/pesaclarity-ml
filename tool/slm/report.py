@@ -26,6 +26,9 @@ def main() -> None:
             f"| {r['name']} | {m['n']} | {m['json_valid']} | {m['chart_choice']} | {m['chart_and_data']} "
             f"| {m['numbers_grounded']} | {m['words_mean']} | {m['sentences_mean']} | {r['seconds']} |"
         )
+    for p in sorted(d.glob("train-log-*.txt")):
+        lines = [x for x in p.read_text().splitlines() if x.strip()]
+        print(f"\n{p.stem} (last lines):\n\n```\n" + "\n".join(lines[-6:]) + "\n```")
     for p in sorted(d.glob("train-*.json")):
         t = json.loads(p.read_text())
         print(f"\n{p.stem}: {t}")

@@ -12,6 +12,7 @@ No DP budget: the data is synthetic, made-up people only (docs/SLM.md).
 from __future__ import annotations
 
 import argparse
+import os
 import json
 import math
 import random
@@ -46,13 +47,15 @@ def main() -> None:
     ap.add_argument("--rank", type=int, default=16)
     ap.add_argument("--lr", type=float, default=3e-4)
     ap.add_argument("--batch", type=int, default=8)
+    ap.add_argument("--micro", type=int, default=2, help="rows per forward pass")
     ap.add_argument("--limit", type=int, default=0, help="train on this many rows only")
     ap.add_argument("--hours", type=float, default=4.5, help="stop after this long")
     a = ap.parse_args()
 
     torch.manual_seed(0)
     random.seed(0)
-    torch.set_num_threads(max(1, torch.get_num_threads()))
+    # Leave a core for the runner itself: starved of CPU, it loses touch with GitHub.
+    torch.set_num_threads(max(1, (os.cpu_count() or 2) - 1))
     tok = AutoTokenizer.from_pretrained(a.model)
     model = AutoModelForCausalLM.from_pretrained(a.model, torch_dtype=torch.float32)
     model = get_peft_model(
@@ -74,6 +77,19 @@ def main() -> None:
         ),
     )
     model.print_trainable_parameters()
+    # Memory: recompute activations in the backward pass, and score only the reply's tokens
+    # (the full vocabulary's logits for every prompt token would not fit a runner).
+    inner = model.base_model.model
+    inner.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+    inner.enable_input_require_grads()
+    ce = torch.nn.CrossEntropyLoss(reduction="sum")
+
+    def reply_loss(ids, mask, labels):  # type: ignore[no-untyped-def]
+        hidden = inner.model(input_ids=ids, attention_mask=mask).last_hidden_state
+        target = labels[:, 1:]
+        keep = target != -100
+        logits = inner.lm_head(hidden[:, :-1][keep])
+        return ce(logits.float(), target[keep]), int(keep.sum())
     rows = [json.loads(x) for x in Path(a.data, "train.jsonl").read_text().splitlines()]
     if a.limit:
         rows = rows[: a.limit]
@@ -99,17 +115,23 @@ def main() -> None:
         for b in batches:
             if step >= steps:
                 break
-            n = max(len(data[i][0]) for i in b)
-            ids = torch.full((len(b), n), pad)
-            labels = torch.full((len(b), n), -100)
-            mask = torch.zeros((len(b), n), dtype=torch.long)
-            for j, i in enumerate(b):
-                x, y = data[i]
-                ids[j, : len(x)] = torch.tensor(x)
-                labels[j, : len(y)] = torch.tensor(y)
-                mask[j, : len(x)] = 1
-            loss = model(input_ids=ids, attention_mask=mask, labels=labels).loss
-            loss.backward()
+            tokens = sum(sum(1 for t in data[i][1][1:] if t != -100) for i in b)
+            total = 0.0
+            for k in range(0, len(b), a.micro):
+                part = b[k : k + a.micro]
+                n = max(len(data[i][0]) for i in part)
+                ids = torch.full((len(part), n), pad)
+                labels = torch.full((len(part), n), -100)
+                mask = torch.zeros((len(part), n), dtype=torch.long)
+                for j, i in enumerate(part):
+                    x, y = data[i]
+                    ids[j, : len(x)] = torch.tensor(x)
+                    labels[j, : len(y)] = torch.tensor(y)
+                    mask[j, : len(x)] = 1
+                summed, _ = reply_loss(ids, mask, labels)
+                (summed / tokens).backward()
+                total += summed.item()
+            loss = torch.tensor(total / tokens)
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             opt.step()
             sched.step()
