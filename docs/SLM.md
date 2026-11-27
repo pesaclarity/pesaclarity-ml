@@ -107,8 +107,14 @@ the app reads them:
 
 Base and fine-tuned models of both sizes are scored; SmolLM2-360M-Instruct base (the current
 experiment's model) is the baseline. Thresholds to ship: JSON valid ≥ 98%, chart choice ≥ 90%,
-numbers grounded ≥ 98%; the smallest model that passes ships. The latest report is
-[SLM-EVAL.md](SLM-EVAL.md) (also on the `slm-models` prerelease).
+numbers grounded ≥ 98%; the smallest model that passes ships. The report is
+[SLM-EVAL.md](SLM-EVAL.md).
+
+**Result:** the 135M model passes after a second pass (JSON valid 100%, chart choice 90.5%,
+numbers grounded 100%) and ships as Ask's **Light** model: vocabulary trimmed, int8 weights,
+110.4 MB (`pesaclarity-smollm2-135m-trim-int8.weights`). The 360M model stays at 88.5% chart
+choice after three passes, so **Full is not offered**. Layer pruning (even two layers) and 4-bit
+weights fail the bars for both sizes.
 
 ## Leaner: vocabulary trimming and layer pruning
 
@@ -138,12 +144,13 @@ scores of each.
 ## Conversion and the rayo check
 
 The fine-tuned models are converted with rayo-convert at the rayo commit the app pins
-(`--weights q4 --context 2048`; for 360M also `--q3 mlp`). [`tool/slm/rayo_check.py`](../tool/slm/rayo_check.py)
+(`--weights int8 --context 2048`, shipped; `q4`, and `--q3 mlp` for 360M, scored for the
+record: 4-bit weights lose the chart line on these small models, see SLM-EVAL.md). [`tool/slm/rayo_check.py`](../tool/slm/rayo_check.py)
 runs each file with rayo's chat program, greedy, on 40 held-out rows and compares with torch's
 greedy replies: a float32 conversion must give the same replies (the conversion is right); the
 q4 files are scored with the same metrics (what quantisation costs).
 
-The `report` job puts the q4 `.weights`, `SHA256SUMS` (with the source files' hashes),
+The `report` job of `slm-lean.yml` puts the int8 `.weights`, `SHA256SUMS` (with the source files' hashes),
 `MODEL-LICENCE.txt` (SmolLM2's Apache-2.0, noting the modification) and `SLM-EVAL.md` on this
 repository's `slm-models` prerelease. The app's `slm-model.yml` copies the chosen file from there,
 checked against the SHA-256 it pins, into the iPhone test build only.
