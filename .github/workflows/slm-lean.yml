@@ -1,0 +1,297 @@
+name: Phone language model (leaner)
+
+# Makes the fine-tuned phone models from slm-fine-tune.yml leaner (docs/SLM.md): vocabulary
+# trimming, and layer pruning with a short healing fine-tune, each scored on the held-out people
+# against the thresholds (JSON valid >= 98%, chart choice >= 90%, numbers grounded >= 98%); the
+# smallest passing prune is also trimmed. Every variant is converted with rayo-convert (q4) at
+# the rayo commit the app pins and checked on rayo against torch, and put on the `slm-models`
+# prerelease with the report. Takes the fine-tuned models and data from the run named below.
+on:
+  push:
+    branches: [feat/slm-fine-tune]
+    paths:
+      - src/akili/slm/lean.py
+      - .github/workflows/slm-lean.yml
+  workflow_dispatch:
+    inputs:
+      run:
+        description: The slm-fine-tune.yml run to take the fine-tuned models from
+        required: false
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  RAYO_REF: cdd7f559b6cfe88fa917d4760bebca9bdc5dad37
+  TORCH: torch==2.5.1
+  TAG: slm-models
+  PYTHONPATH: src
+  RUN: ${{ inputs.run || '45822900384' }}
+
+jobs:
+  lean:
+    name: Leaner SmolLM2-${{ matrix.size }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        # 135M passed after one second pass (run 45861963159; its pruning did not, so it is
+        # not tried again). 360M takes a third pass from that run's second, over rows it has
+        # not learnt from, with the chart line's tokens weighted 5 times in the loss.
+        include:
+          - size: 360M
+            ks: ""
+            skip: 1901
+            polish: 700
+            polish_lr: 1e-4
+            json_weight: 5
+            from_run: "45861963159"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu "$TORCH"
+          pip install -r tool/slm/requirements.txt
+      - uses: actions/download-artifact@v5
+        if: ${{ !matrix.from_run }}
+        with:
+          name: tuned-${{ matrix.size }}
+          path: tuned
+          run-id: ${{ env.RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v5
+        if: ${{ !matrix.from_run }}
+        with:
+          name: results-${{ matrix.size }}
+          path: results
+          run-id: ${{ env.RUN }}
+          github-token: ${{ github.token }}
+      # Or the model an earlier run of this workflow left, with its scores.
+      - uses: actions/download-artifact@v5
+        if: ${{ matrix.from_run }}
+        with:
+          name: lean-${{ matrix.size }}
+          path: earlier
+          run-id: ${{ matrix.from_run }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v5
+        if: ${{ matrix.from_run }}
+        with:
+          name: leanresults-${{ matrix.size }}
+          path: results
+          run-id: ${{ matrix.from_run }}
+          github-token: ${{ github.token }}
+      - if: ${{ matrix.from_run }}
+        run: |
+          mv earlier/tuned tuned
+          mv "results/eval-${{ matrix.size }}-tuned.json" "results/eval-${{ matrix.size }}-second.json"
+          cp "results/eval-${{ matrix.size }}-second.json" "results/eval-${{ matrix.size }}-tuned.json"
+          rm -f results/eval-*-polished.json results/eval-*-trim.json results/eval-*-prune*.json
+      - uses: actions/download-artifact@v5
+        with:
+          name: data
+          path: data
+          run-id: ${{ env.RUN }}
+          github-token: ${{ github.token }}
+      # A second pass over rows the first fine-tune did not see, at a lower rate; kept only
+      # when it scores at least as well.
+      - name: Polish the fine-tune
+        run: |
+          set -euo pipefail
+          s=${{ matrix.size }}
+          mkdir -p polish-data
+          tail -n +${{ matrix.skip }} data/train.jsonl > polish-data/train.jsonl
+          python -m akili.slm.train tuned polish-data polished --limit ${{ matrix.polish }} --lr ${{ matrix.polish_lr }} --json-weight ${{ matrix.json_weight || 1 }} --hours 1.6 2>&1 | tail -3
+          cp tuned/SOURCES tuned/REVISION polished/
+          python -m akili.slm.evaluate polished data/test.jsonl "results/eval-$s-polished.json" --name "$s fine-tuned, polished"
+          if python3 tool/slm/better.py "results/eval-$s-polished.json" "results/eval-$s-tuned.json"; then
+            rm -rf tuned && mv polished tuned
+            mv "results/eval-$s-tuned.json" "results/eval-$s-first.json"
+            cp "results/eval-$s-polished.json" "results/eval-$s-tuned.json"
+            echo "polished kept"
+          fi
+      - name: Trim the vocabulary
+        run: |
+          set -euo pipefail
+          s=${{ matrix.size }}
+          mkdir -p results
+          python -m akili.slm.lean trim tuned data trim
+          cp trim/TRIM.json "results/trim-$s.json"
+          python -m akili.slm.lean parity tuned trim data "results/parity-$s.json"
+          python -m akili.slm.evaluate trim data/test.jsonl "results/eval-$s-trim.json" --name "$s fine-tuned, trimmed vocab"
+      - name: Prune layers, heal, score
+        run: |
+          set -euo pipefail
+          s=${{ matrix.size }}
+          python -m akili.slm.lean score tuned data "results/layers-$s.json"
+          best=""
+          for k in ${{ matrix.ks }}; do
+            python -m akili.slm.lean prune tuned "results/layers-$s.json" "$k" "pruned-$k"
+            python -m akili.slm.train "pruned-$k" data "healed-$k" --limit 600 --hours 0.75 2>&1 | tail -3
+            cp "pruned-$k/PRUNE.json" "healed-$k/"
+            cp "pruned-$k/PRUNE.json" "results/prune-$s-$k.json"
+            python -m akili.slm.evaluate "healed-$k" data/test.jsonl "results/eval-$s-prune$k.json" --name "$s fine-tuned, $k layers pruned"
+            if python3 tool/slm/passes.py "results/eval-$s-prune$k.json"; then best="$k"; else break; fi
+          done
+          echo "BEST=$best" >> "$GITHUB_ENV"
+          echo "smallest passing prune: ${best:-none}"
+      - name: Trim the smallest passing prune
+        if: env.BEST != ''
+        run: |
+          set -euo pipefail
+          s=${{ matrix.size }}
+          python -m akili.slm.lean trim "healed-$BEST" data "both-$BEST"
+          python -m akili.slm.lean parity "healed-$BEST" "both-$BEST" data "results/parity-$s-both.json"
+          python -m akili.slm.evaluate "both-$BEST" data/test.jsonl "results/eval-$s-prune$BEST-trim.json" --name "$s fine-tuned, $BEST layers pruned, trimmed vocab"
+      - name: Gather the variants
+        run: |
+          mkdir -p variants
+          cp -r tuned variants/tuned
+          mv trim variants/trim
+          if [ -n "$BEST" ]; then mv "healed-$BEST" "variants/prune$BEST"; mv "both-$BEST" "variants/prune$BEST-trim"; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lean-${{ matrix.size }}
+          path: variants
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: leanresults-${{ matrix.size }}
+          path: results
+
+  convert:
+    name: rayo, leaner ${{ matrix.size }}
+    needs: lean
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        size: [360M]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+        with:
+          repository: pesaclarity/rayo
+          ref: ${{ env.RAYO_REF }}
+          path: rayo
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: |
+          pip install "./rayo/convert[chat]" numpy==2.1.3 pydantic==2.10.3 pyyaml==6.0.2
+          make -C rayo
+      - uses: actions/download-artifact@v5
+        with:
+          name: lean-${{ matrix.size }}
+          path: variants
+      - uses: actions/download-artifact@v5
+        with:
+          name: leanresults-${{ matrix.size }}
+          path: results
+      - uses: actions/download-artifact@v5
+        with:
+          name: data
+          path: data
+          run-id: ${{ env.RUN }}
+          github-token: ${{ github.token }}
+      # int8 weights with a float32 key/value cache: q4 (and q3) lose the chart line on
+      # these small models, and an int8 cache costs the 360M model too
+      # (SLM-QUANT-*.md on the release). q4 and q3 are still scored for the report.
+      - name: Convert (int8; q4 and q3 MLP for the record) and check on rayo
+        run: |
+          set -euo pipefail
+          s=${{ matrix.size }}
+          l="$(echo "$s" | tr A-Z a-z)"
+          mkdir -p out rayo-res
+          check() {  # variant name convert-args...
+            v="$1"; n="$2"; shift 2
+            rayo-convert "variants/$v" -o "out/$n.weights" --context 2048 "$@" | tail -1
+            python tool/slm/rayo_check.py rayo/examples/chat/chat "out/$n.weights" data/test.jsonl \
+              "results/eval-$s-$v.json" "rayo-res/rayo-$n.json" --n 40 --kv float32 --name "$n"
+          }
+          for v in variants/*/; do
+            v="$(basename "$v")"
+            check "$v" "pesaclarity-smollm2-$l-$v-int8" --weights int8
+          done
+          mkdir -p record
+          check tuned "pesaclarity-smollm2-$l-tuned-q4" --weights q4
+          mv "out/pesaclarity-smollm2-$l-tuned-q4.weights" record/
+          if [ "$l" = 360m ]; then
+            check tuned "pesaclarity-smollm2-$l-tuned-q3mlp" --weights q4 --q3 mlp
+            mv "out/pesaclarity-smollm2-$l-tuned-q3mlp.weights" record/
+          fi
+          rm -f out/*.tokenizer.json record/*
+          ls -l out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: leanrayo-${{ matrix.size }}
+          path: |
+            out
+            rayo-res
+
+  report:
+    name: Report and publish (leaner)
+    needs: [lean, convert]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: leanresults-*
+          path: all
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: leanrayo-*
+          path: all
+      - name: Report
+        run: |
+          mkdir -p r
+          find all -name '*.json' -exec cp {} r/ \;
+          { python3 tool/slm/report.py r; echo; echo '## Trim, parity and pruning'; echo;
+            for f in r/trim-*.json r/parity-*.json r/prune-*.json r/layers-*.json; do
+              [ -f "$f" ] && echo "- $(basename "$f"): $(tr -d '\n' < "$f")"; done; } \
+            | tee report.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Put the weights and the report on the slm-models prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          cp report.md SLM-LEAN-EVAL.md
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --prerelease \
+            --target "$GITHUB_SHA" --title "Ask money models" \
+            --notes "SmolLM2 fine-tuned on synthetic data only for Pesa Clarity's Ask (Light: 135M, Full: 360M); see docs/SLM.md and the SLM-*.md reports."
+          {
+            echo "Pesa Clarity's Ask money models are modified versions of Hugging Face's SmolLM2"
+            echo "instruct models, licensed under the Apache License 2.0:"
+            echo "  HuggingFaceTB/SmolLM2-135M-Instruct revision 12fd25f77366fa6b3b4b768ec3050bf629380bac (Light)"
+            echo "  HuggingFaceTB/SmolLM2-360M-Instruct revision a10cc1512eabd3dde888204e902eca88bddb4951 (Full)"
+            echo "Changes: fine-tuned (LoRA, merged) on synthetic data only, vocabulary trimmed, and"
+            echo "converted to int8 weights with rayo-convert (pesaclarity/rayo $RAYO_REF), by"
+            echo "pesaclarity/pesaclarity-ml (docs/SLM.md, .github/workflows/slm-fine-tune.yml and"
+            echo "slm-lean.yml)."
+            echo
+            cat /usr/share/common-licenses/Apache-2.0
+          } > MODEL-LICENCE.txt
+          gh release upload "$TAG" MODEL-LICENCE.txt --clobber
+          gh release upload "$TAG" SLM-LEAN-EVAL.md --clobber
+          shopt -s nullglob
+          w=(all/leanrayo-*/out/*.weights)
+          if [ ${#w[@]} -gt 0 ]; then
+            gh release download "$TAG" -p SHA256SUMS -O SHA256SUMS.old || : > SHA256SUMS.old
+            cp "${w[@]}" .
+            names="$(for f in "${w[@]}"; do basename "$f"; done)"
+            { grep -v -F -f <(echo "$names") SHA256SUMS.old || true; sha256sum $names; } > SHA256SUMS
+            cat SHA256SUMS
+            gh release upload "$TAG" $names SHA256SUMS --clobber
+          fi
