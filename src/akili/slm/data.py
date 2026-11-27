@@ -295,7 +295,64 @@ def write(kind: str, sheet: _Sheet, rng: np.random.Generator) -> tuple[Choice, s
     return CHART_FOR_KIND[kind], text
 
 
+def _kes(v: str) -> float:
+    """An amount as written (``KES 1,200.50``, ``-KES 30``) as a number, to compare amounts.
+
+    Only the rules compare; the reply still quotes amounts exactly as written, never a result.
+    """
+    m = re.fullmatch(r"(-?)KES ([\d,]+(?:\.\d+)?)", v.strip())
+    if not m:
+        return 0.0
+    x = float(m.group(2).replace(",", ""))
+    return -x if m.group(1) else x
+
+
+def _zero(v: str) -> bool:
+    return _kes(v) == 0
+
+
+@dataclass(frozen=True)
+class _Month:
+    name: str
+    money_in: str
+    spent: str
+
+
+def _months(sheet: _Sheet) -> list[_Month]:
+    out = []
+    for t in sheet.get("Last 3 months"):
+        m = re.match(r"(.*): money in (.*), spent (.*)$", t)
+        if m:
+            out.append(_Month(m.group(1), m.group(2), m.group(3)))
+    return out
+
+
+def _spent_in(m: _Month) -> str:
+    return f"nothing in {m.name}" if _zero(m.spent) else f"{m.spent} in {m.name}"
+
+
+def _against_last_month(p, total: str, last: _Month | None) -> str | None:  # type: ignore[no-untyped-def]
+    """This month's spending so far set against last month's whole month, when both exist."""
+    if last is None or _zero(total) or _zero(last.spent):
+        return None
+    if _kes(total) > _kes(last.spent):
+        return p(
+            f"That is already more than the {last.spent} you spent in all of {last.name}.",
+            f"You have already passed {last.name}'s {last.spent}, and the month is not over.",
+        )
+    if _kes(total) == _kes(last.spent):
+        return f"That matches the {last.spent} you spent in all of {last.name}."
+    return p(
+        f"That is still below the {last.spent} you spent in all of {last.name}.",
+        f"So far that is less than {last.name}'s {last.spent}.",
+    )
+
+
 def _words(kind: str, sheet: _Sheet, rng: np.random.Generator) -> tuple[Choice, str]:
+    """The reply's sentences. They answer the question first, then say what stands out and why
+    it matters, comparing amounts (larger, smaller, more than half, more than last month) by
+    rule. Every amount is quoted exactly as the facts write it; no number is worked out, and an
+    amount of zero is never quoted (it says nothing)."""
     p = lambda *o: _pick(rng, o)  # noqa: E731
     cats = [_split(x) for x in sheet.get("Top spending this month")]
     payees = [_split(x) for x in sheet.get("Top payees this month")]
@@ -303,6 +360,9 @@ def _words(kind: str, sheet: _Sheet, rng: np.random.Generator) -> tuple[Choice, 
     payday = sheet.flow("Since payday")
     fees = sheet.get("Fees this month")
     budgets = sheet.get("Budgets this month")
+    months = _months(sheet)
+    last = months[-1] if months else None
+    total = month[2] if month else None
 
     if kind in ("where", "where_payday", "share"):
         if not cats:
@@ -312,19 +372,61 @@ def _words(kind: str, sheet: _Sheet, rng: np.random.Generator) -> tuple[Choice, 
             )
         period = "since_payday" if kind == "where_payday" and payday else "this_month"
         chart = "donut" if kind == "share" else "bar"
-        (n1, v1) = cats[0]
-        s = [p(f"Most of your spending this month went to {n1}, at {v1}.",
-               f"{n1} is your biggest spend this month: {v1}.",
-               f"Your largest category this month is {n1} with {v1}.")]  # fmt: skip
-        if len(cats) > 1:
-            n2, v2 = cats[1]
-            s.append(p(f"Next is {n2} at {v2}.", f"After that comes {n2}, {v2}.",
-                       f"{n2} follows with {v2}."))  # fmt: skip
+        n1, v1 = cats[0]
+        share = _kes(v1) / _kes(total) if total and _kes(total) > 0 else 0.0
+        s: list[str] = []
+        if total and _kes(v1) == _kes(total):
+            s.append(p(f"All of your spending this month went to {n1}: {v1}.",
+                       f"Everything you have spent this month, {v1}, went to {n1}."))  # fmt: skip
+            share = 0.0
+            cats = cats[:1]
+        elif kind == "share" and total and share:
+            s.append(p(f"{n1} takes the biggest share: {v1} of the {total} you have spent this month.",
+                       f"The largest slice is {n1}, {v1} out of {total} this month."))  # fmt: skip
+        elif total and share:
+            s.append(p(f"Most of your money this month went to {n1}: {v1} of the {total} you have spent.",
+                       f"{n1} is your biggest spend this month, {v1} out of {total} in all.",
+                       f"Your money went mainly to {n1}, at {v1} of {total} spent this month."))  # fmt: skip
+        else:
+            s.append(f"{n1} is your biggest spend this month, at {v1}.")
+        n2, v2 = cats[1] if len(cats) > 1 else ("", "")
+        if not share:
+            pass
+        elif n1 == "Not sorted":
+            s.append(
+                "Those entries are not sorted yet, so sorting them would show what they really are."
+            )
+        elif share >= 0.75:
+            s.append(p("That is almost all of it, so the rest of your spending is small.",
+                       "Almost everything went there, so that one category decides your month."))  # fmt: skip
+        elif share > 0.5:
+            s.append(p("That is more than half of your spending, so it matters most.",
+                       "It is more than half of the total, so the other categories are much smaller."))  # fmt: skip
+        elif n2:
+            if _kes(v1) >= 2 * _kes(v2):
+                s.append(f"It is more than twice the next one, {n2} at {v2}.")
+            else:
+                s.append(p(f"{n2} is close behind at {v2}, so your spending is spread out.",
+                           f"Next is {n2} at {v2}, not far behind."))  # fmt: skip
         if kind == "where_payday" and payday:
-            s.append(f"Since payday you have spent {payday[2]} and {payday[1]} came in.")
-        elif month:
-            s.append(p(f"In all you have spent {month[2]} so far this month.",
-                       f"Your total spending this month is {month[2]}."))  # fmt: skip
+            if _zero(payday[2]) and _zero(payday[1]):
+                s.append("Since payday nothing has come in or been spent yet.")
+            elif _zero(payday[2]):
+                s.append(f"Since payday nothing has been spent yet, and {payday[1]} came in.")
+            elif _zero(payday[1]):
+                s.append(f"Since payday you have spent {payday[2]}, and nothing new has come in.")
+            elif _kes(payday[3]) < 0:
+                s.append(
+                    f"Since payday you have spent {payday[2]}, more than the {payday[1]} that came in."
+                )
+            else:
+                s.append(
+                    f"Since payday you have spent {payday[2]} of the {payday[1]} that came in."
+                )
+        else:
+            c = _against_last_month(p, total, last) if total else None
+            if c:
+                s.append(c)
         return Choice(chart, "top_categories", period), " ".join(s[:3])
 
     if kind == "payees":
@@ -335,8 +437,15 @@ def _words(kind: str, sheet: _Sheet, rng: np.random.Generator) -> tuple[Choice, 
                f"{n1} got the most from you this month: {v1}.")]  # fmt: skip
         if len(payees) > 1:
             n2, v2 = payees[1]
-            s.append(p(f"Next is {n2} with {v2}.", f"Then {n2}, at {v2}."))
-        return Choice("bar", "top_payees", "this_month"), " ".join(s)
+            if _kes(v1) >= 2 * _kes(v2):
+                s.append(f"That is more than twice the next, {n2} at {v2}.")
+            elif _kes(v1) == _kes(v2):
+                s.append(f"{n2} got the same, {v2}.")
+            else:
+                s.append(f"{n2} is close behind at {v2}.")
+        if total and _kes(total) > 0 and _kes(v1) / _kes(total) > 0.5:
+            s.append(f"That one payee is more than half of the {total} you have spent.")
+        return Choice("bar", "top_payees", "this_month"), " ".join(s[:3])
 
     if kind == "spend_less":
         if not cats:
@@ -345,21 +454,26 @@ def _words(kind: str, sheet: _Sheet, rng: np.random.Generator) -> tuple[Choice, 
                 "Once there is, I can show where to cut back."
             )
         n1, v1 = cats[0]
-        s = [p(f"Your biggest spend this month is {n1} at {v1}, so that is the first place to look.",
-               f"Start with {n1}: it is {v1} this month, more than anything else.",
-               f"{n1} takes the most, {v1} this month, so small cuts there help most.")]  # fmt: skip
+        if total and not _zero(total):
+            s = [p(f"Start with {n1}: at {v1} of the {total} you have spent this month, it is the biggest.",
+                   f"{n1} is the first place to look, {v1} of your {total} this month.")]  # fmt: skip
+        else:
+            s = [f"Start with {n1}: at {v1} it is your biggest spend this month."]
         over = [b for b in budgets if " over by " in b]
         if over:
             name, rest = over[0].split(": planned ", 1)
             by = rest.rsplit("over by ", 1)[1]
-            s.append(f"You are over your {name} budget by {by}, so try to hold back there.")
+            s.append(f"You are also over your {name} budget by {by}, so hold back there first.")
         elif len(cats) > 1:
             n2, v2 = cats[1]
-            s.append(p(f"{n2} at {v2} is next.", f"Then look at {n2}, which is {v2}."))
-        if fees and fees[0] != "KES 0" and len(s) < 3:
-            s.append(
-                f"You also paid {fees[0]} in fees; sending larger amounts less often can cut them."
-            )
+            s.append(p(f"{n2} at {v2} is next, so a small cut there helps too.",
+                       f"After that, look at {n2}, which is {v2}."))  # fmt: skip
+        c = _against_last_month(p, total, last) if total else None
+        f = fees[0] if fees else "KES 0"
+        if c and total and last and _kes(total) > _kes(last.spent):
+            s.append(f"You have already spent more than in {last.name}, so cutting now matters.")
+        elif not _zero(f) and total and _kes(f) >= 0.03 * _kes(total):
+            s.append(f"Your fees of {f} are worth cutting too: fewer, larger transfers cost less.")
         return Choice("bar", "top_categories", "this_month"), " ".join(s[:3])
 
     if kind == "budget":
@@ -370,39 +484,57 @@ def _words(kind: str, sheet: _Sheet, rng: np.random.Generator) -> tuple[Choice, 
             )
         s = []
         over = [b for b in budgets if " over by " in b]
-        under = [b for b in budgets if " over by " not in b]
+        under = []
+        for b in budgets:
+            if " over by " in b:
+                continue
+            name, rest = b.split(": planned ", 1)
+            planned = rest.partition(", spent ")[0]
+            left = rest.rsplit("left ", 1)[1]
+            under.append((name, planned, left))
         if over:
             name, rest = over[0].split(": planned ", 1)
             planned = rest.partition(", spent ")[0]
             by = rest.rsplit("over by ", 1)[1]
-            s.append(
-                f"You are over your {name} budget: you planned {planned} and are over by {by}."
-            )
+            s.append(p(f"Not quite: you planned {planned} for {name} and are over by {by}.",
+                       f"No, {name} is over its budget: {by} more than the {planned} you planned."))  # fmt: skip
             if len(over) > 1:
-                s.append(f"{over[1].split(': planned ')[0]} is over too.")
+                s.append(
+                    f"{over[1].split(': planned ')[0]} is over too, so those two need attention."
+                )
         else:
-            s.append(p("You are within all your budgets so far this month.",
-                       "Good news: no budget is over so far this month."))  # fmt: skip
+            s.append(p("Yes, you are within all your budgets so far this month.",
+                       "You are on track: no budget is over so far this month."))  # fmt: skip
         if under:
-            name, rest = under[0].split(": planned ", 1)
-            left = rest.rsplit("left ", 1)[1]
-            s.append(f"{name} still has {left} left.")
+            name, planned, left = min(under, key=lambda u: _kes(u[2]) / max(_kes(u[1]), 1))
+            if _zero(left):
+                s.append(f"{name} is used up: you have spent all of its {planned}.")
+            elif _kes(left) < 0.25 * _kes(planned):
+                s.append(f"{name} is close to its limit, with only {left} left of {planned}.")
+            elif len(under) > 1:
+                s.append(f"Even {name}, the tightest, still has {left} of {planned} left.")
+            else:
+                s.append(f"{name} still has {left} of its {planned} left.")
         return Choice("bar", "budget_vs_spent", "this_month"), " ".join(s[:3])
 
     if kind == "trend":
-        trend = sheet.get("Last 3 months")
-        if len(trend) < 3:
+        if len(months) < 3:
             return _none("last_3_months"), _pick(rng, _NOT_SURE)
-        vals = [re.match(r"(.*): money in (.*), spent (.*)$", t) for t in trend]
-        if not all(vals):
-            return _none("last_3_months"), _pick(rng, _NOT_SURE)
-        ms = [(v.group(1), v.group(3)) for v in vals if v]
-        s = [
-            f"You spent {ms[0][1]} in {ms[0][0]}, {ms[1][1]} in {ms[1][0]} and {ms[2][1]} in {ms[2][0]}."
-        ]
-        if month:
-            s.append(f"So far this month you have spent {month[2]}.")
-        return Choice("line", "months_trend", "last_3_months"), " ".join(s)
+        a, b, c = (_kes(m.spent) for m in months)
+        listed = f"{_spent_in(months[0])}, {_spent_in(months[1])} and {_spent_in(months[2])}"
+        if a < b < c:
+            s = [f"Your spending has gone up each month: {listed}."]
+        elif a > b > c:
+            s = [f"Your spending has gone down each month: {listed}."]
+        else:
+            top = max(months, key=lambda m: _kes(m.spent))
+            s = [f"It has gone up and down: {listed}.", f"{top.name} was the highest."]
+        if total and not _zero(total) and last and not _zero(last.spent):
+            if _kes(total) > _kes(last.spent):
+                s.append(f"This month you have already spent {total}, more than in {last.name}.")
+            else:
+                s.append(f"So far this month you have spent {total}, below {last.name}.")
+        return Choice("line", "months_trend", "last_3_months"), " ".join(s[:3])
 
     if kind in ("weeks", "weeks_payday"):
         use = payday if kind == "weeks_payday" and payday else month
@@ -410,40 +542,79 @@ def _words(kind: str, sheet: _Sheet, rng: np.random.Generator) -> tuple[Choice, 
         if use is None:
             return _none(), _pick(rng, _NOT_SURE)
         label = "Since payday" if period == "since_payday" else "This month"
-        s = [f"{label}, {use[1]} came in and you spent {use[2]}."]
-        left = use[3]
-        if left.startswith("-"):
-            s.append(f"That leaves you short by {left[1:]}, so spending is ahead of money in.")
+        money_in, out, left = use[1], use[2], use[3]
+        if _zero(money_in) and _zero(out):
+            return Choice("bar", "in_out_weeks", period), (
+                f"{label}, nothing has come in or gone out yet, so there is nothing to compare."
+            )
+        if _zero(money_in):
+            s = [f"{label}, nothing has come in yet and you have spent {out}.",
+                 "So everything you spend is coming from money you already had."]  # fmt: skip
+        elif _zero(out):
+            s = [f"{label}, {money_in} came in and you have not spent anything yet."]
         else:
-            s.append(f"That leaves {left}.")
-        s.append("The chart shows it week by week.")
+            s = [f"{label}, {money_in} came in and you spent {out}."]
+            if _kes(left) < 0:
+                s.append(f"You are short by {left[1:]}, so spending is ahead of money in.")
+            elif _kes(out) < 0.5 * _kes(money_in):
+                s.append(f"You have spent less than half of it, which leaves {left}.")
+            else:
+                s.append(f"That leaves {left}, so most of what came in is already spent.")
         return Choice("bar", "in_out_weeks", period), " ".join(s)
 
     if kind == "fees":
         f = fees[0] if fees else "KES 0"
-        if f == "KES 0":
-            return _none(), "You paid no fees this month. Nice work keeping charges at zero."
+        if _zero(f):
+            return Choice("donut", "fees", "this_month"), p(
+                "You paid no fees this month, so charges are not costing you anything.",
+                "No fees this month: charges are not eating into your money.",
+            )
         s = [p(f"You paid {f} in fees and charges this month.",
                f"Fees and charges came to {f} this month.")]  # fmt: skip
-        s.append(p("Sending money in fewer, larger amounts and paying tills directly can cut them.",
+        if total and not _zero(total):
+            if _kes(f) >= 0.05 * _kes(total):
+                s.append(
+                    f"That is a noticeable part of the {total} you have spent, so it is worth cutting."
+                )
+            elif _kes(f) < 0.01 * _kes(total):
+                s.append(
+                    f"That is small next to the {total} you have spent, so charges are not the main drain."
+                )
+            else:
+                s.append(f"Next to the {total} you have spent it is modest, but it still adds up.")
+        s.append(p("Fewer, larger transfers and paying tills directly cost less.",
                    "Paying by till or paybill, rather than many small transfers, usually costs less."))  # fmt: skip
-        return Choice("donut", "fees", "this_month"), " ".join(s)
+        return Choice("donut", "fees", "this_month"), " ".join(s[:3])
 
     if kind == "left":
         bal = sheet.get("Balances now")
+        bills = sheet.get("Upcoming bills")
         if not bal:
-            if month:
+            if month and not _zero(month[1]):
+                if _kes(month[3]) < 0:
+                    return _none(), (
+                        f"I don't see your account balances, but this month you have spent "
+                        f"{month[2]}, more than the {month[1]} that came in."
+                    )
                 return _none(), (
                     f"I don't see your account balances, but this month {month[1]} came in "
                     f"and you spent {month[2]}, which leaves {month[3]}."
                 )
             return _none(), _pick(rng, _NOT_SURE)
         day = _split(bal[0])[1]
-        s = [f"You have {day} in your day-to-day accounts."]
-        sav = [b for b in bal if b.startswith("Savings accounts: ")]
-        if sav:
-            s.append(f"Your savings accounts hold {_split(sav[0])[1]}.")
-        return _none(), " ".join(s)
+        sav = [_split(b)[1] for b in bal if b.startswith("Savings accounts: ")]
+        s = [f"You have {day} in your day-to-day accounts." if not _zero(day)
+             else "Your day-to-day accounts are empty right now."]  # fmt: skip
+        if sav and not _zero(sav[0]):
+            s.append(f"Your savings hold another {sav[0]}.")
+        if bills:
+            bname, brest = bills[0].split(": ", 1)
+            bamt = brest.split(", due ")[0]
+            if _kes(day) >= _kes(bamt):
+                s.append(f"That covers your next bill, {bname} at {bamt}.")
+            else:
+                s.append(f"That is less than your next bill, {bname} at {bamt}, so plan for it.")
+        return _none(), " ".join(s[:3])
 
     if kind == "bills":
         bills = sheet.get("Upcoming bills")
@@ -452,7 +623,19 @@ def _words(kind: str, sheet: _Sheet, rng: np.random.Generator) -> tuple[Choice, 
         s = [f"Your next bill is {bills[0]}."]
         if len(bills) > 1:
             s.append(f"After that: {bills[1]}.")
-        return _none(), " ".join(s)
+        bal = sheet.get("Balances now")
+        if bal:
+            day = _split(bal[0])[1]
+            amt = bills[0].split(": ", 1)[1].split(", due ")[0]
+            if _kes(day) >= _kes(amt):
+                s.append(f"Your day-to-day accounts hold {day}, enough for it.")
+            elif _zero(day):
+                s.append("Your day-to-day accounts are empty, so set money aside for it.")
+            else:
+                s.append(
+                    f"Your day-to-day accounts hold {day}, less than that, so set money aside."
+                )
+        return _none(), " ".join(s[:3])
 
     return _none(), _pick(rng, _NOT_SURE)
 

@@ -1,0 +1,265 @@
+name: Phone language model (Light, reasoned answers)
+
+# Retrains Ask's Light model (SmolLM2-135M-Instruct, Apache-2.0) on the reasoned answers of
+# akili.slm.data (docs/SLM.md): the same recipe as slm-fine-tune.yml and slm-lean.yml (LoRA rank
+# 16, 2,400 rows, then a second pass of 600 unseen rows at 1e-4, vocabulary trimmed, int8 weights,
+# float32 key/value cache on rayo). Scores it and the current Light model on the same held-out
+# people, and puts the new file on the `slm-models` prerelease only when it passes: JSON valid
+# 100%, chart choice >= 90%, numbers grounded 100%, filler answers <= 0.5%.
+on:
+  push:
+    branches: [feat/slm-rational]
+    paths:
+      - src/akili/slm/**
+      - .github/workflows/slm-rational.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  RAYO_REF: cdd7f559b6cfe88fa917d4760bebca9bdc5dad37
+  TORCH: torch==2.5.1
+  TAG: slm-models
+  PYTHONPATH: src
+  MODEL: HuggingFaceTB/SmolLM2-135M-Instruct
+  REVISION: 12fd25f77366fa6b3b4b768ec3050bf629380bac
+  # The slm-lean.yml run that made the current Light model.
+  CURRENT_RUN: "45861963159"
+  NAME: pesaclarity-smollm2-135m-light-r2-int8
+
+jobs:
+  data:
+    name: Synthetic data
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install numpy==2.1.3 pydantic==2.10.3 pyyaml==6.0.2 pytest==8.3.4
+      - name: Fact sheets match the app's; targets are grounded, without filler
+        run: python -m pytest -q tests/test_slm_facts.py -p no:cacheprovider --noconftest
+      - run: python -m akili.slm.data artefacts/slm/data
+      - uses: actions/upload-artifact@v4
+        with:
+          name: data
+          path: artefacts/slm/data
+
+  current:
+    name: Current Light on the same people
+    needs: data
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu "$TORCH"
+          pip install -r tool/slm/requirements.txt
+      - uses: actions/download-artifact@v5
+        with:
+          name: lean-135M
+          path: earlier
+          run-id: ${{ env.CURRENT_RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v5
+        with:
+          name: data
+          path: data
+      - run: python -m akili.slm.evaluate earlier/trim data/test.jsonl results/eval-135M-0current.json --name "current Light (trimmed, second pass)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: results-current
+          path: results
+
+  train:
+    name: Fine-tune SmolLM2-135M
+    needs: data
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu "$TORCH"
+          pip install -r tool/slm/requirements.txt
+      - uses: actions/download-artifact@v5
+        with:
+          name: data
+          path: data
+      - name: Download the model and check its files
+        run: python tool/slm/fetch_model.py "$MODEL" "$REVISION" base
+      - name: Fine-tune (LoRA, merged)
+        run: |
+          set -o pipefail
+          mkdir -p results
+          python -m akili.slm.train base data tuned --limit 2400 --epochs 1 --hours 3 2>&1 | tee results/train-log-135M.txt
+          cp tuned/TRAINING.json results/train-135M.json
+          cp base/SOURCES base/REVISION tuned/
+      - run: python -m akili.slm.evaluate tuned data/test.jsonl results/eval-135M-1tuned.json --name "new 135M fine-tuned"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tuned
+          path: tuned
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        with:
+          name: results-train
+          path: results
+
+  polish:
+    name: Second pass and trimmed vocabulary
+    needs: train
+    runs-on: ubuntu-24.04
+    timeout-minutes: 200
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu "$TORCH"
+          pip install -r tool/slm/requirements.txt
+      - uses: actions/download-artifact@v5
+        with:
+          name: tuned
+          path: tuned
+      - uses: actions/download-artifact@v5
+        with:
+          name: data
+          path: data
+      - uses: actions/download-artifact@v5
+        with:
+          name: results-train
+          path: results
+      - name: Second pass over rows the first did not see
+        run: |
+          set -euo pipefail
+          mkdir -p polish-data
+          tail -n +2401 data/train.jsonl > polish-data/train.jsonl
+          python -m akili.slm.train tuned polish-data polished --limit 600 --lr 1e-4 --hours 1.6 2>&1 | tail -3
+          cp tuned/SOURCES tuned/REVISION polished/
+          python -m akili.slm.evaluate polished data/test.jsonl results/eval-135M-2polished.json --name "new 135M, second pass"
+          if python3 tool/slm/better.py results/eval-135M-2polished.json results/eval-135M-1tuned.json; then
+            rm -rf tuned && mv polished tuned && echo "second pass kept"
+          fi
+      - name: Trim the vocabulary
+        run: |
+          set -euo pipefail
+          python -m akili.slm.lean trim tuned data trim
+          cp trim/TRIM.json results/trim-135M.json
+          python -m akili.slm.lean parity tuned trim data results/parity-135M.json
+          python -m akili.slm.evaluate trim data/test.jsonl results/eval-135M-3trim.json --name "new Light (second pass, trimmed vocab)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: trim
+          path: trim
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-polish
+          path: results
+
+  convert:
+    name: rayo int8
+    needs: polish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+        with:
+          repository: pesaclarity/rayo
+          ref: ${{ env.RAYO_REF }}
+          path: rayo
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: |
+          pip install "./rayo/convert[chat]" numpy==2.1.3 pydantic==2.10.3 pyyaml==6.0.2
+          make -C rayo
+      - uses: actions/download-artifact@v5
+        with:
+          name: trim
+          path: trim
+      - uses: actions/download-artifact@v5
+        with:
+          name: data
+          path: data
+      - uses: actions/download-artifact@v5
+        with:
+          name: results-polish
+          path: results
+      - name: Convert (int8) and check on rayo (float32 key/value cache)
+        run: |
+          set -euo pipefail
+          mkdir -p out rayo-res
+          rayo-convert trim -o "out/$NAME.weights" --weights int8 --context 2048 | tail -1
+          rm -f out/*.tokenizer.json
+          python tool/slm/rayo_check.py rayo/examples/chat/chat "out/$NAME.weights" data/test.jsonl \
+            results/eval-135M-3trim.json "rayo-res/rayo-$NAME.json" --n 40 --kv float32 --name "$NAME"
+          ls -l out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rayo
+          path: |
+            out
+            rayo-res
+
+  report:
+    name: Report, and publish when it passes
+    needs: [current, polish, convert]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: results-*
+          path: all
+      - uses: actions/download-artifact@v5
+        with:
+          name: rayo
+          path: all/rayo
+        continue-on-error: true
+      - name: Report
+        run: |
+          mkdir -p r
+          find all -name '*.json' -exec cp {} r/ \;
+          find all -name 'train-log-*.txt' -exec cp {} r/ \;
+          { python3 tool/slm/report.py r; echo; python3 tool/slm/compare.py r/eval-135M-0current.json r/eval-135M-3trim.json; } \
+            | tee report.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: report
+          path: |
+            report.md
+            r
+      - name: Passes the bar to ship
+        id: gate
+        run: python3 tool/slm/passes.py r/eval-135M-3trim.json --strict
+      - name: Put the weights and the report on the slm-models prerelease
+        if: steps.gate.outcome == 'success' && needs.convert.result == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          cp report.md SLM-LIGHT-R2-EVAL.md
+          cp "all/rayo/out/$NAME.weights" .
+          gh release download "$TAG" -p SHA256SUMS -O SHA256SUMS.old
+          { grep -v -F "$NAME.weights" SHA256SUMS.old || true; sha256sum "$NAME.weights"; } > SHA256SUMS
+          cat SHA256SUMS
+          gh release upload "$TAG" "$NAME.weights" SHA256SUMS SLM-LIGHT-R2-EVAL.md --clobber

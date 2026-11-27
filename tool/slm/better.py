@@ -1,6 +1,6 @@
 """Exit 0 when evaluation A scores at least as well as B (chart choice first), else 1.
 
-    python tool/slm/better.py A_JSON B_JSON
+python tool/slm/better.py A_JSON B_JSON
 """
 
 import json

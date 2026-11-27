@@ -16,15 +16,15 @@ def main() -> None:
     rayo_runs = sorted(p for p in d.glob("rayo-*.json"))
     print("## Torch, greedy, held-out people\n")
     print(
-        "| model | n | JSON valid % | chart % | chart+data % | numbers grounded % | words | sentences | seconds |"
+        "| model | n | JSON valid % | chart % | chart+data % | numbers grounded % | filler % | words | sentences | seconds |"
     )
-    print("|---|---|---|---|---|---|---|---|---|")
+    print("|---|---|---|---|---|---|---|---|---|---|")
     runs = [json.loads(p.read_text()) for p in torch_runs]
     for r in runs:
         m = r["metrics"]
         print(
             f"| {r['name']} | {m['n']} | {m['json_valid']} | {m['chart_choice']} | {m['chart_and_data']} "
-            f"| {m['numbers_grounded']} | {m['words_mean']} | {m['sentences_mean']} | {r['seconds']} |"
+            f"| {m['numbers_grounded']} | {m.get('filler', '')} | {m['words_mean']} | {m['sentences_mean']} | {r['seconds']} |"
         )
     for p in sorted(d.glob("train-log-*.txt")):
         lines = [x for x in p.read_text().splitlines() if x.strip()]

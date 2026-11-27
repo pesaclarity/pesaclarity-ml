@@ -80,3 +80,17 @@ def ungrounded_numbers(answer: str, facts: str) -> list[str]:
         if _plain(n) not in known:
             out.append(n)
     return out
+
+
+_ZERO = re.compile(r"(?<![\d.,])-?KES 0(?![\d.,])")
+#: Sentences that say nothing about the person's money (the first version's stock lines).
+_EMPTY = ("the chart shows it", "nice work")
+
+
+def filler_sentences(answer: str) -> list[str]:
+    """Sentences that quote an amount of zero ("You also paid KES 0 in fees") or say nothing."""
+    out = []
+    for s in re.split(r"(?<=[.!?])\s+", answer.strip()):
+        if s and (_ZERO.search(s) or any(e in s.lower() for e in _EMPTY)):
+            out.append(s)
+    return out

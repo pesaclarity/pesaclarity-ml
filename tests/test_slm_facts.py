@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from akili.slm.answer import parse, ungrounded_numbers
+from akili.slm.answer import filler_sentences, parse, ungrounded_numbers
 from akili.slm.data import CHART_FOR_KIND, examples
 from akili.slm.facts import SYSTEM_PROMPT, Entry, FactsInput, facts_text, from_fixture, money
 
@@ -67,6 +67,17 @@ def test_targets_are_valid_and_grounded():
         assert ungrounded_numbers(p.text, r.facts) == [], (r.kind, p.text)
         assert 1 <= p.text.count(".") + p.text.count("!") <= 6
         assert r.system.endswith(r.facts)
+        assert filler_sentences(p.text) == [], (r.kind, p.text)
+
+
+def test_filler_is_found():
+    assert filler_sentences("Rent is KES 15,805. You also paid KES 0 in fees.") == [
+        "You also paid KES 0 in fees."
+    ]
+    assert filler_sentences("Fees were KES 0.50. Rent is KES 10,000.") == []
+    assert filler_sentences("That leaves KES 5. The chart shows it week by week.") == [
+        "The chart shows it week by week."
+    ]
 
 
 def test_train_and_test_people_differ():

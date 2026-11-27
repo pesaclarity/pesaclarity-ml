@@ -3,7 +3,8 @@
 
 Metrics (docs/SLM.md): JSON valid (the first line is exactly the schema), chart and data choice
 accuracy (both right), numbers grounded (every number in the answer is in the fact sheet),
-answer length. Writes every reply, for the rayo check and the report's samples.
+answer length, and filler (answers with a sentence that quotes an amount of zero or says
+nothing, such as "You also paid KES 0 in fees"). Writes every reply, for the rayo check and the report's samples.
 
     python -m akili.slm.evaluate MODEL_DIR TEST_JSONL OUT_JSON [--n 200] [--name label]
     python -m akili.slm.evaluate --score REPLIES_JSON...   (scores replies made elsewhere, e.g. on rayo)
@@ -18,13 +19,13 @@ import statistics
 import time
 from pathlib import Path
 
-from akili.slm.answer import parse, ungrounded_numbers
+from akili.slm.answer import filler_sentences, parse, ungrounded_numbers
 
 MAX_NEW = 160
 
 
 def score(rows: list[dict], replies: list[str]) -> dict:  # type: ignore[type-arg]
-    valid = chart = choice = grounded = 0
+    valid = chart = choice = grounded = filler = 0
     words: list[int] = []
     sentences: list[int] = []
     for r, reply in zip(rows, replies, strict=True):
@@ -35,6 +36,7 @@ def score(rows: list[dict], replies: list[str]) -> dict:  # type: ignore[type-ar
             chart += p.choice.chart == gold["chart"]
             choice += p.choice.chart == gold["chart"] and p.choice.data == gold["data"]
         grounded += not ungrounded_numbers(p.text, r["facts"])
+        filler += bool(filler_sentences(p.text))
         words.append(len(p.text.split()))
         sentences.append(len([s for s in re.split(r"(?<=[.!?])\s+", p.text) if s.strip()]))
     n = len(rows)
@@ -44,6 +46,7 @@ def score(rows: list[dict], replies: list[str]) -> dict:  # type: ignore[type-ar
         "chart_choice": round(100 * chart / n, 1),
         "chart_and_data": round(100 * choice / n, 1),
         "numbers_grounded": round(100 * grounded / n, 1),
+        "filler": round(100 * filler / n, 1),
         "words_mean": round(statistics.mean(words), 1),
         "sentences_mean": round(statistics.mean(sentences), 1),
     }
